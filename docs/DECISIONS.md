@@ -166,7 +166,13 @@ set the suite and pay the size. Every key, signature and wrap names its
 suite so the format can move again. Both primitives are in Go 1.27's
 standard library (crypto/hpke, crypto/mldsa), so this costs no dependency.
 Refused: classical-only (fails the archive); per-edge ML-DSA by default (a
-tenfold log for a threat the seal already covers).
+tenfold log for a threat the seal already covers). *Refined the same hour
+on cal's question whether these are the accepted NIST standards:* ML-KEM is
+FIPS 203 and ML-DSA is FIPS 204, both final since August 2024; HPKE is an
+IETF standard (RFC 9180) composing NIST primitives, its hybrid KEM suite an
+IETF draft Go has shipped; the AEAD moves from ChaCha20-Poly1305, an IETF
+cipher, to AES-256-GCM, which is FIPS-approved, so that every primitive is a
+NIST standard and the IETF parts are only the composition.
 
 **D-23, 2026-11-17. The test method is a portfolio of oracles.** *cal asked
 that it be explicit; Claude mapped the tiers onto cairn; both took it.* The

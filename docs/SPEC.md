@@ -233,12 +233,15 @@ one `in-scope` edge current. A store MAY run unencrypted, in which case
 `in-scope` is advisory and section 9.3 does not apply.
 
 9.3. **Envelope encryption.** In an encrypting store a blob's bytes are
-encrypted with a fresh random data key (ChaCha20-Poly1305; large blobs as
-chunks under one data key with distinct nonces), and the data key is wrapped
-to each member of the blob's scope at write time with HPKE (RFC 9180) in
-base mode under the hybrid KEM `MLKEM768X25519` (ML-KEM-768 with X25519,
-post-quantum and classical together), KDF HKDF-SHA256, AEAD
-ChaCha20-Poly1305 (D-22). A recipient key for wrapping is a separate key
+encrypted with a fresh random data key (AES-256-GCM; large blobs as chunks
+under one data key with distinct nonces), and the data key is wrapped to
+each member of the blob's scope at write time with HPKE (RFC 9180) in base
+mode under the hybrid KEM `MLKEM768X25519` (ML-KEM-768 with X25519,
+post-quantum and classical together), KDF HKDF-SHA256, AEAD AES-256-GCM
+(D-22). Every primitive is a NIST standard (FIPS 203, FIPS 197 and SP
+800-38D, SP 800-56C) composed by two IETF standards (RFC 9180, RFC 5869);
+`chacha20poly1305` is a named alternate AEAD suite for platforms without AES
+hardware and is never the default. A recipient key for wrapping is a separate key
 pair from the signing key, carried on the writer's principal by a `key-of`
 edge with suite `hpke-mlkem768x25519`. The wrapped keys are stored beside the
 blob in a header the file backend writes as `blobs/<..>/<..>.keys`, each
