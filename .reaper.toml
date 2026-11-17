@@ -1,8 +1,9 @@
 # cairn as a reaper tenant. One guest, FreeBSD, host execution: FreeBSD is
 # the first deployment target and the one the store's mount is proven on
 # first, so it must not be the platform nothing exercises. The template
-# needs a Go toolchain (pkg install go); the build says so by name when it
-# is missing rather than failing on the first import.
+# ships no Go toolchain; tools/reaper-bootstrap.sh installs it from packages
+# on `reaper build`, idempotently, and refuses by name when it is still
+# missing or older than go.mod asks -- the shape every tenant here takes.
 #
 # No pipes in any cmd: a pipe reports the right-hand side's status.
 
@@ -14,7 +15,7 @@ exec = "host"
 
 [build]
 cmd = "sh tools/reaper-build.sh"
-cache = ["gomod", "gobuild"]
+cache = ["pkg", "gomod", "gobuild"]
 
 [run]
 cmd = "sh tools/reaper-run.sh"

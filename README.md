@@ -68,7 +68,7 @@ there. [XTDB](https://xtdb.com/) is the reference for bitemporal records.
 Go 1.26 or later. `go build -o cairn ./cmd/cairn` produces the binary;
 `go test ./...` runs the suite. The repository is a [reaper](https://forge.axonibyte.com/axonibyte/reaper)
 tenant: `reaper up`, `reaper sync`, `reaper build`, `reaper run` exercise it
-on a disposable FreeBSD guest.
+on a disposable FreeBSD guest; the build bootstraps Go from packages.
 
 ## License
 
