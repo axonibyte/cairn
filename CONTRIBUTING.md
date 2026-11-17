@@ -43,6 +43,10 @@ form), it is the engine's and is not configurable off.
 
 ## Tests
 
+The method is a portfolio of oracles; the tiers and what each one alone can
+see are in [TESTING.md](TESTING.md). The rules below are the ones that
+matter on the day a test turns red.
+
 - **Drive, do not read.** A claim about behavior is made by a test that
   fails without the change and passes with it, not by reading the code.
 - **Mutants.** New arms are checked by mutation: the defect they guard

@@ -38,20 +38,28 @@ The file backend (SPEC §3, §4, §6.2) with no index, no query, no network.
   the bound, chunks as blobs.
 - The log writer: canonical JSON edges with contiguous `seq`, segment files
   rolled at the bound, `Append` refusing a non-contiguous `seq`.
-- Ed25519 writers (§8): key generation, key id, canonical-form signing,
-  verification on append; the founding writer from configuration.
+- Writers (§8): Ed25519 and ML-DSA-65 key pairs with suite ids, canonical-
+  form signing, verification on append; the hash chain (`prev`) on every
+  edge and the `seal` edge at segment roll; the founding writer from
+  configuration.
+- The vector file (TESTING.md tier 2): committed inputs and expected
+  canonical forms, hashes, chain hashes and signatures, consumed by the Go
+  suite and by the archival shell script.
 - The core relation types as constants with validation (§5.2) and the
   `names` edge minting a concept.
 - `cairn init`, `cairn put <file>`, `cairn edge <rel> <s> <o>`, `cairn log`.
 
 **Tests** — hash mismatch refused by name; a non-contiguous `seq` refused;
-a forged signature refused; a manifest round-trips a 40 MiB blob
+a forged signature refused; a broken chain and a failed seal refused naming
+the first bad `seq` (P-7, mutant: flip one byte of a sealed edge); a manifest round-trips a 40 MiB blob
 byte-identically; the canonical form is stable across key order and
 whitespace (mutant: reorder keys, signature must fail); the archival test of
 §15.2 as a shell script run by the suite: `cat`, `sha256sum` and `jq` list
 every edge and verify every blob.
 
-**Acceptance** — P-2 (the archive) read on a store of ten thousand edges.
+**Acceptance** — P-2 (the archive) and P-7 (the chain) read on a store of
+ten thousand edges; the oracle self-test (TESTING.md) in place before the
+first invariant is trusted.
 
 ## M2 — The index and the query — PLANNED, bumps to v0.1.0
 
@@ -109,8 +117,9 @@ software-key recipient, keyed identity (§9.4), scope rotation (§9.5).
 
 **Deliverables**
 
-- `in-scope`, `member`; data keys wrapped per recipient; `.keys` headers;
-  chunked large blobs under one data key.
+- `in-scope`, `member`; data keys wrapped per recipient with HPKE under
+  `MLKEM768X25519`; recipient key pairs on principals; `.keys` headers with
+  suite ids; chunked large blobs under one data key.
 - `hmac256:` identity in encrypting stores; ciphertext SHA-256 beside it.
 - Edge-field encryption of `o` and `a` as an instance option (§9.6).
 - `cairn scope create|add|rotate`.
@@ -121,8 +130,9 @@ to old members and new blobs not; equality of two plaintexts invisible
 without the store key; edges' structure fields never encrypted (mutant:
 encrypt `rel`, the log must fail to replay).
 
-**Acceptance** — P-5 (encryption's cost) measured and recorded, under the
-bounds or the bounds revisited with the measurement beside them.
+**Acceptance** — P-5 (encryption's cost, hybrid KEM) measured and
+recorded, under the bounds or the bounds revisited with the measurement
+beside them.
 
 ## M5 — The protocol and replication — PLANNED, bumps to v0.3.0
 
@@ -136,6 +146,16 @@ leaves nothing behind.
 
 **Acceptance** — P-4 read between two machines in the fleet (FreeBSD and
 Linux), recorded.
+
+## M5b — Simulated writers — PLANNED
+
+The portfolio's tier 9 for a store (TESTING.md): a seeded generator of
+writers, blobs, edges, supersessions, retractions and scope changes against
+a shadow model; a nemesis of kills mid-append, truncated segments, corrupt
+blobs, clock skew and a stale replica; a checker diffing model against store
+and against a rebuilt index; a shrinker; the oracle self-test first. Fixed
+seeds committed; any seed that finds a defect promoted. The known-defect
+rediscovery acceptance of the whole portfolio runs here.
 
 ## M6 — The first instance — PLANNED
 

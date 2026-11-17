@@ -151,3 +151,32 @@ software implementation so that TPM and PKCS#11 are additions, not changes.
 mount; TMSU for the path as a tag conjunction; XTDB for bitemporal records.
 cairn differs in typed append-only relations with supersession, the log as
 the store, and the specification for a reader who was not there.
+
+**D-22, 2026-11-17. Post-quantum cryptography from 0.1, hybrid for
+confidentiality, sealed chain for provenance, with suite agility.** *cal
+raised it (NIST's direction; BoneMesh already does it); Claude designed the
+shape; both took it.* Key wrapping uses HPKE under the hybrid ML-KEM-768
+plus X25519 KEM, because a harvested archive is the threat a long-lived
+store faces and there is no reason to ship a classical-only wrap. Signatures
+stay Ed25519 per edge for size (64 bytes against 3,309), and the log is a
+hash chain sealed with ML-DSA-65 at every segment roll and on demand, so an
+adversary who later breaks Ed25519 can forge an edge's tag but cannot alter
+history under a seal. Instances that want per-edge post-quantum signatures
+set the suite and pay the size. Every key, signature and wrap names its
+suite so the format can move again. Both primitives are in Go 1.27's
+standard library (crypto/hpke, crypto/mldsa), so this costs no dependency.
+Refused: classical-only (fails the archive); per-edge ML-DSA by default (a
+tenfold log for a threat the seal already covers).
+
+**D-23, 2026-11-17. The test method is a portfolio of oracles.** *cal asked
+that it be explicit; Claude mapped the tiers onto cairn; both took it.* The
+method of Axonibyte's "A Portfolio of Oracles" governs this repository:
+every tier kept must answer a question no cheaper tier can, invariants are
+self-tested against a broken store before they are trusted, new assertions
+are mutation-checked, and the acceptance of the whole is rediscovering
+known defects with their fixes reverted. The mapping is in
+[TESTING.md](../TESTING.md). Two tiers are cairn's own strongest: cross-
+implementation vectors, because the specification exists to be implemented
+by others and the archival shell script is already a second implementation;
+and simulated writers with a shadow model, because the defects an append-
+only store hides are the ones that appear only after history accumulates.

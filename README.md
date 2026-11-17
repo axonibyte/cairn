@@ -30,8 +30,9 @@ The store is the blobs plus the log, plain files readable with `cat` and
 `sha256` on a machine with no cairn software. An index is derived from the
 log and rebuildable at any time; a mount presents the relations as paths,
 the path being a query; a protocol replicates the log by offset to other
-machines; encryption, when a store wants it, is envelope encryption whose
-recipient set is the access control. The storage layer is a seam: the file
+machines; encryption, when a store wants it, is envelope encryption under a hybrid
+post-quantum key encapsulation whose recipient set is the access control,
+and the log is a hash chain sealed with post-quantum signatures. The storage layer is a seam: the file
 backend is the reference and the archival form, and other backends may stand
 behind the same contract.
 
@@ -43,6 +44,7 @@ behind the same contract.
 | [docs/DECISIONS.md](docs/DECISIONS.md) | The numbered design decisions, who made each and why, with the alternatives refused. |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | The milestones in dependency order, each with deliverables, tests and acceptance. The plan of record. |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How work lands here: the commit rules, the test discipline, the engine-and-instance boundary. |
+| [TESTING.md](TESTING.md) | The portfolio of oracles: the test tiers and the question only each can answer. |
 
 ## Status
 

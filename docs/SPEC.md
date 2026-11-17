@@ -1,6 +1,6 @@
 # cairn specification
 
-Version 0.1, draft, 2026-11-17. Normative where it says MUST, SHOULD and MAY,
+Version 0.1, draft, 2026-11-17 (amended the same day for D-22 and D-23). Normative where it says MUST, SHOULD and MAY,
 in the sense of RFC 2119. The decisions behind each section are numbered in
 [DECISIONS.md](DECISIONS.md) and cited as D-n. This specification is licensed
 under the Open Web Foundation Agreement 1.0; attribution is to "cairn
@@ -74,11 +74,12 @@ edge (section 7.4).
 | `seq` | integer | The edge's position in this store's log, from 1, contiguous. |
 | `t` | string | Wall time of writing, RFC 3339 with at least millisecond precision, UTC. |
 | `w` | string | The writer's key id (section 8). |
+| `prev` | string | The SHA-256 of the canonical form of the previous edge, `sha256:…`; for `seq` 1 the store's founding hash. The log is a hash chain (section 8.7). |
 | `rel` | string | The relation type. |
 | `s` | string | The subject: a concept id, blob identity or edge reference. |
 | `o` | string, optional | The object: a concept id, blob identity, edge reference or literal (`lit:` prefix). Absent for unary relations. |
 | `a` | object, optional | Attributes: a flat map of string keys to JSON values. Instance-defined, except `via` (section 8.5) and `scope` (section 9). |
-| `sig` | string | The writer's signature over the canonical form of the edge without `sig` (section 8.3). |
+| `sig` | string | The writer's signature over the canonical form of the edge without `sig` (section 8.3), prefixed by the suite id. |
 
 An edge reference is `edge:<seq>` within the same store. A concept id is
 `c:<ulid>`, minted by the writer at creation. A literal is `lit:` followed
@@ -114,7 +115,8 @@ them. Instances MAY define further types; their names MUST contain a `.`
 | `decided-by` | blob or concept → principal | The subject was decided by that principal. |
 | `wrote` | writer → blob | The writer authored the blob. Emitted on every blob's first appearance. |
 | `in-scope` | blob or concept → scope | The subject's recipient set (section 9). |
-| `key-of` | writer → principal | The writer key belongs to the principal (section 8). |
+| `key-of` | writer → principal | A key (signing or recipient, with its suite) belongs to the principal (section 8). |
+| `seal` | edge → (none) | A post-quantum signature over the chain hash through the subject edge (section 8.7). |
 
 5.3. Every edge's `w` and `t` are provenance; `wrote` and `decided-by` are
 the explicit forms a reader queries. A blob with no `wrote` edge is an
@@ -173,8 +175,17 @@ of core type `compacted` carrying the hash of the log before and after.
 
 ## 8. Writers, principals and signatures
 
-8.1. A **writer** is an Ed25519 key pair. Its id is `k:` followed by the
-lowercase hex SHA-256 of the public key.
+8.0. **Cryptographic agility.** Every key, signature, wrapped key and seal
+carries the identifier of its suite, and a reader MUST refuse an identifier
+it does not know rather than guess. The suites of 0.1 are named below; a
+later version MAY add suites and MUST NOT silently change what an
+identifier means (D-22).
+
+8.1. A **writer** is a signing key pair. Its id is `k:<suite>:` followed by
+the lowercase hex SHA-256 of the public key. Suites in 0.1: `ed25519`
+(classical, the default per-edge suite, 64-byte signatures) and `mldsa65`
+(ML-DSA-65, FIPS 204, post-quantum, 3,309-byte signatures). A writer MAY
+hold one key of each suite under one principal; the `key-of` edges say so.
 
 8.2. A **principal** is a concept with at least one `key-of` edge from a
 writer. One principal holds one writer per machine (D-8); a principal that
@@ -197,6 +208,20 @@ writer's.
 8.6. Sessions of one principal on one machine share that machine's key, so a
 later session is the same writer.
 
+8.7. **The chain and the seal.** Every edge carries `prev`, the hash of the
+previous edge's canonical form, so the log is a hash chain and any altered
+or removed edge breaks every hash after it. A **seal** is an edge of core
+type `seal` whose subject is `edge:<seq>` (the last edge sealed) and whose
+`sig` is an `mldsa65` signature by the writer's post-quantum key over the
+chain hash at that point. A store MUST emit a seal at every segment roll and
+MAY emit one on demand; a reader verifying a log MUST verify the chain and
+every seal, and MUST report the `seq` of the last seal as the bound of
+post-quantum provenance. Per-edge `ed25519` signatures identify the writer
+cheaply; the seals make the whole history unforgeable by an adversary who
+can later break Ed25519 but not ML-DSA (D-22). An instance MAY set its
+per-edge suite to `mldsa65` and pay the log size for per-edge post-quantum
+signatures; the default is `ed25519` with seals.
+
 ## 9. Scopes and encryption
 
 9.1. A **scope** is a concept naming a recipient set. Membership is edges of
@@ -208,11 +233,18 @@ one `in-scope` edge current. A store MAY run unencrypted, in which case
 `in-scope` is advisory and section 9.3 does not apply.
 
 9.3. **Envelope encryption.** In an encrypting store a blob's bytes are
-encrypted with a fresh random data key (XChaCha20-Poly1305; large blobs as
+encrypted with a fresh random data key (ChaCha20-Poly1305; large blobs as
 chunks under one data key with distinct nonces), and the data key is wrapped
-to each member of the blob's scope at write time (X25519 from the member's
-Ed25519 key, HKDF-SHA256). The wrapped keys are stored beside the blob in a
-header the file backend writes as `blobs/<..>/<..>.keys`. A reader can read
+to each member of the blob's scope at write time with HPKE (RFC 9180) in
+base mode under the hybrid KEM `MLKEM768X25519` (ML-KEM-768 with X25519,
+post-quantum and classical together), KDF HKDF-SHA256, AEAD
+ChaCha20-Poly1305 (D-22). A recipient key for wrapping is a separate key
+pair from the signing key, carried on the writer's principal by a `key-of`
+edge with suite `hpke-mlkem768x25519`. The wrapped keys are stored beside the
+blob in a header the file backend writes as `blobs/<..>/<..>.keys`, each
+entry carrying its suite id. Confidentiality is where a harvested archive
+is broken later, so it is post-quantum from 0.1; there is no classical-only
+suite for wrapping. A reader can read
 a blob if and only if a data key is wrapped to a key it holds. **The
 recipient set is the access control** (D-12); permission bits do not
 survive replication and are not part of this specification.
@@ -332,6 +364,8 @@ control; the allow-list is the second.
   are the design's answer.
 - **Hardware recipients** (TPM 2.0, PKCS#11): a second recipient type under
   section 9.8.
+- **Further suites**: SLH-DSA seals, or a post-quantum-only KEM when the
+  hybrid is no longer wanted, as new suite identifiers under section 8.0.
 - **Block-level backends**: a store behind section 6.1, exportable to the
   file form.
 
@@ -370,9 +404,15 @@ the design did what it claimed. Each fails on its own clause.
   answers the same queries as the source at the same `seq`, and refuses an
   edge with a forged signature. Fails on either.
 - **P-5, encryption's cost.** Encrypting a store of ten thousand kilobyte
-  blobs costs under 5 percent in bytes and under 10 percent in write wall
-  time against the same store unencrypted on the same machine. Fails above
-  either bound.
+  blobs to one recipient under the hybrid KEM costs under 10 percent in
+  bytes and under 10 percent in write wall time against the same store
+  unencrypted on the same machine. Fails above either bound. (The byte bound
+  was 5 percent before D-22; a hybrid wrap is about 1.2 KB per recipient per
+  blob, and the prediction says so rather than hiding the cost.)
+- **P-7, the chain.** Altering one byte of any edge in a sealed log, or
+  removing any edge, is detected by chain verification, and the seal after
+  it fails; the verifier names the first bad `seq`. Fails if any alteration
+  goes undetected.
 - **P-6, the mount's write.** Writing a file into `/is-about=X/is-about=Y/`
   yields exactly two `is-about` edges and one `wrote`, and writing it again
   yields one `supersedes` and no overwrite. Fails on any other count.
