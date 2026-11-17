@@ -1,0 +1,28 @@
+# cairn as a reaper tenant. One guest, FreeBSD, host execution: FreeBSD is
+# the first deployment target and the one the store's mount is proven on
+# first, so it must not be the platform nothing exercises. The template
+# needs a Go toolchain (pkg install go); the build says so by name when it
+# is missing rather than failing on the first import.
+#
+# No pipes in any cmd: a pipe reports the right-hand side's status.
+
+schema = 1
+project = "cairn"
+
+guests = ["freebsd-15.1"]
+exec = "host"
+
+[build]
+cmd = "sh tools/reaper-build.sh"
+cache = ["gomod", "gobuild"]
+
+[run]
+cmd = "sh tools/reaper-run.sh"
+
+[sync]
+exclude = ["/out/", "/cairn"]
+
+[resources]
+cores = 2
+ram_gb = 4
+disk_gb = 32

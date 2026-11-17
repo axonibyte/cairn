@@ -1,0 +1,169 @@
+# cairn roadmap
+
+The path from a specification to a store a reader who was not there can
+open. Milestones are ordered by dependency: every query hangs off a log that
+is the truth, every mount hangs off a query that is a fact, and every claim
+of durability hangs off a test that reads the store with no software at all.
+
+Rules of the road, from [CONTRIBUTING.md](../CONTRIBUTING.md): each
+milestone ships with the tests named in its section, every new assertion is
+mutation-checked, a milestone is not done while its acceptance is unmet, and
+the specification's predictions (SPEC §16) are read when the milestone that
+can test them lands. Version bumps land at the milestones marked with one.
+
+Status convention: each milestone is `PLANNED`, `IN PROGRESS`, or
+`DONE (date)`. Update the marker when state changes; this file is the plan
+of record.
+
+---
+
+## M0 — Framework — DONE (2026-11-17)
+
+The specification at 0.1, the decisions record, this roadmap, the licenses
+by kind, the contributing rules, a reaper tenant manifest, and a binary that
+prints its version. Nothing stores anything.
+
+**Acceptance** — `go build ./... && go test ./...` green on a clean checkout;
+the three documents read end to end by the repository owner; the roadmap
+broken into forge issues.
+
+## M1 — The store: blobs and the log — PLANNED
+
+The file backend (SPEC §3, §4, §6.2) with no index, no query, no network.
+
+**Deliverables**
+
+- `PutBlob`/`GetBlob` over `blobs/xx/…`, temp-and-rename writes, hash
+  verified on read, refusal by name on mismatch; manifests for blobs over
+  the bound, chunks as blobs.
+- The log writer: canonical JSON edges with contiguous `seq`, segment files
+  rolled at the bound, `Append` refusing a non-contiguous `seq`.
+- Ed25519 writers (§8): key generation, key id, canonical-form signing,
+  verification on append; the founding writer from configuration.
+- The core relation types as constants with validation (§5.2) and the
+  `names` edge minting a concept.
+- `cairn init`, `cairn put <file>`, `cairn edge <rel> <s> <o>`, `cairn log`.
+
+**Tests** — hash mismatch refused by name; a non-contiguous `seq` refused;
+a forged signature refused; a manifest round-trips a 40 MiB blob
+byte-identically; the canonical form is stable across key order and
+whitespace (mutant: reorder keys, signature must fail); the archival test of
+§15.2 as a shell script run by the suite: `cat`, `sha256sum` and `jq` list
+every edge and verify every blob.
+
+**Acceptance** — P-2 (the archive) read on a store of ten thousand edges.
+
+## M2 — The index and the query — PLANNED, bumps to v0.1.0
+
+SQLite index derived from the log (§10); the query of §11; the storage
+contract (§6.1) as Go interfaces with the file backend behind them.
+
+**Deliverables**
+
+- `Rebuild` from `ReadLog(1)`; `At()`; incremental apply of new edges.
+- Currency per `supersedes` chain; retraction state (§7.1); `removed` and
+  `compacted` admin edges (§7.3, §7.4) with their refusals.
+- The query: conjunction of terms, name resolution, bounded traversal,
+  textual form; `cairn query <expr>`; `cairn current <identity>`.
+- The contract: `Store` and `Index` interfaces; the file backend and the
+  SQLite index as the reference implementations; `cairn export` to the file
+  layout from any backend.
+
+**Tests** — rebuild yields identical answers to a fixed query set (P-3,
+mutant: drop one edge during rebuild, one answer must differ); a retracted
+edge is absent from queries and present in history; removal of a referenced
+blob refused by name; compaction preserves every `seq` and `sig`; traversal
+depth bound honored (mutant: unbounded, must fail on a cycle fixture).
+
+**Acceptance** — P-3 read; a 10,000-edge rebuild under 10 s on the
+reference machine, recorded.
+
+## M3 — The mount — PLANNED
+
+FUSE on FreeBSD and Linux (§12). The first milestone a person can use.
+
+**Deliverables**
+
+- Virtual directories per conjunction; empty rather than absent; stable
+  readable names from `names` edges.
+- Read through manifests; `.cairn/` structure directories.
+- Write semantics: a new file emits `wrote` plus one edge per path term; a
+  rewrite emits `supersedes`; delete emits `retracts` for that path's edges
+  only.
+- `cairn mount <store> <dir>`; unmount on signal with a clean teardown
+  (lesson carried from rumor R10 d2: a killed process leaves nothing
+  behind, and a sweep collects what it did).
+
+**Tests** — P-6 (the mount's write) with exact edge counts; a traversal that
+never fails for want of a path; the same query by CLI and by `ls` agrees at
+the same `seq`; teardown on SIGTERM and SIGKILL, both measured.
+
+**Acceptance** — P-1 (the fresh reader) performed by a session that has
+never seen the store, recorded verbatim; the mount exercised on the reaper
+FreeBSD guest.
+
+## M4 — Scopes and encryption — PLANNED, bumps to v0.2.0
+
+Envelope encryption per store (§9), the recipient interface with the
+software-key recipient, keyed identity (§9.4), scope rotation (§9.5).
+
+**Deliverables**
+
+- `in-scope`, `member`; data keys wrapped per recipient; `.keys` headers;
+  chunked large blobs under one data key.
+- `hmac256:` identity in encrypting stores; ciphertext SHA-256 beside it.
+- Edge-field encryption of `o` and `a` as an instance option (§9.6).
+- `cairn scope create|add|rotate`.
+
+**Tests** — a reader outside the scope cannot read the blob (mutant:
+wrap to the wrong key, read must fail); rotation leaves old blobs readable
+to old members and new blobs not; equality of two plaintexts invisible
+without the store key; edges' structure fields never encrypted (mutant:
+encrypt `rel`, the log must fail to replay).
+
+**Acceptance** — P-5 (encryption's cost) measured and recorded, under the
+bounds or the bounds revisited with the measurement beside them.
+
+## M5 — The protocol and replication — PLANNED, bumps to v0.3.0
+
+HTTP and JSON (§13): head, log by offset, blobs, append, signed requests,
+the `readers` allow-list; `cairn serve`, `cairn pull`.
+
+**Tests** — a replica answers the same queries at the same `seq` (P-4); a
+forged edge refused; a caller not in `readers` refused; a pull resumed from
+an offset is byte-identical to a fresh one; the serve process's teardown
+leaves nothing behind.
+
+**Acceptance** — P-4 read between two machines in the fleet (FreeBSD and
+Linux), recorded.
+
+## M6 — The first instance — PLANNED
+
+The agent's own store: the memory directory, journals, wants and tools
+migrated into a cairn store with `supersedes` carrying every correction that
+the files recorded by hand, under a scope held by the agent's key. The
+instance's configuration is the proof of D-9: nothing in the engine knows
+whose store it is.
+
+**Acceptance** — a fresh session of the agent opens the mount and finds its
+own standing facts without the hand-written index; the index file is
+retired to history by a `supersedes` edge from the store itself.
+
+## M7 — Seam backends and caches — PLANNED
+
+A second `Store` backend (log-structured or a database) behind §6.1 with
+`cairn export` proving the archival form; a Valkey cache in front of the
+index tagged by `seq` (D-11). Only when a measurement says the index is the
+slow part.
+
+## M8 — Hardware recipients — PLANNED
+
+A TPM 2.0 recipient type (D-20): the writer's key or the store key sealed
+to the host; PKCS#11 as a second. The recipient interface from M4 admits
+them without a format change.
+
+## Deferred, with their attachment points named in SPEC §14
+
+Natural-language resolution above the query; embedding indexes under the
+index contract; block-level backends behind the seam. None is planned for a
+version number yet.
