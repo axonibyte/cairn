@@ -101,7 +101,11 @@ func TestParseRefusesByName(t *testing.T) {
 		"unknown key": {strings.Replace(base, `"o":`, `"x":1,"o":`, 1), ErrUnknownKey, `"x"`},
 		"missing rel": {strings.Replace(base, `"rel":"names",`, "", 1), ErrMissing, "rel"},
 		"seq zero":    {strings.Replace(base, `"seq":1`, `"seq":0`, 1), nil, "seq must be a positive integer"},
-		"nested a":    {strings.Replace(base, `"o":"lit:cal"`, `"a":{"k":{"deep":1}}`, 1), nil, "a is not flat"},
+		"nested a":    {strings.Replace(base, `"o":"lit:cal"`, `"a":{"k":{"deep":1}}`, 1), ErrValue, "nested object"},
+		"dup key":     {strings.Replace(base, `"seq":1,`, `"seq":1,"seq":2,`, 1), ErrDuplicateKey, `"seq"`},
+		"dup in a":    {strings.Replace(base, `"o":"lit:cal"`, `"a":{"k":1,"k":2}`, 1), ErrDuplicateKey, `"k"`},
+		"float in a":  {strings.Replace(base, `"o":"lit:cal"`, `"a":{"n":2.0}`, 1), ErrValue, "2.0"},
+		"exp in a":    {strings.Replace(base, `"o":"lit:cal"`, `"a":{"n":1e3}`, 1), ErrValue, "1e3"},
 		"not object":  {`[1,2]`, nil, "not a JSON object"},
 	}
 	for name, c := range cases {
@@ -131,5 +135,34 @@ func TestHash(t *testing.T) {
 	sum := sha256.Sum256(in)
 	if got := Hash(in); got != "sha256:"+hex.EncodeToString(sum[:]) {
 		t.Fatalf("got %s", got)
+	}
+}
+
+// §4.2a's byte rules, the ones a second implementation in shell must match
+// (quill, coop main/993): number literals are one form, `<&>` and non-ASCII
+// are raw, control characters are \u00xx in lowercase, and an integer is
+// written as decimal digits whatever Go type carried it.
+func TestCanonicalBytesAreTheSpecsBytes(t *testing.T) {
+	e := Edge{Seq: 1, T: "2026-11-18T09:00:00.000Z", W: "k:ed25519:ab", Prev: "sha256:00", Rel: "names", S: "c:01J", O: "lit:<cal & co> / é \t"}
+	e.A = map[string]any{"i": json.Number("2"), "j": int64(1000), "f": float64(3), "b": true, "z": nil, "l": []any{json.Number("1"), "x"}, "u": "\"q\"\\"}
+	b, err := Canonical(e, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"seq":1,"t":"2026-11-18T09:00:00.000Z","w":"k:ed25519:ab","prev":"sha256:00","rel":"names","s":"c:01J","o":"lit:<cal & co> / é \u0009","a":{"b":true,"f":3,"i":2,"j":1000,"l":[1,"x"],"u":"\"q\"\\","z":null}}`
+	if string(b) != want {
+		t.Fatalf("\n got %s\nwant %s", b, want)
+	}
+	// a fractional or exponent number is refused by name whatever type carries it
+	for name, v := range map[string]any{"json 2.0": json.Number("2.0"), "json 2e0": json.Number("2e0"), "float 2.5": 2.5, "json 1e21": json.Number("1e21"), "huge uint": uint64(1) << 63} {
+		e.A = map[string]any{"n": v}
+		if _, err := Canonical(e, false); !errors.Is(err, ErrValue) {
+			t.Fatalf("%s: got %v, want refused", name, err)
+		}
+	}
+	// a string that is not UTF-8 is refused, raw bytes are not canonical
+	e.A = map[string]any{"s": string([]byte{0xff, 'a'})}
+	if _, err := Canonical(e, false); !errors.Is(err, ErrValue) {
+		t.Fatalf("non-UTF-8: %v", err)
 	}
 }

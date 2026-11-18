@@ -1,11 +1,12 @@
 // Package blob is the file backend's blob store (SPEC §3): content-addressed
 // bytes at blobs/<xx>/<rest>, written to a temporary name and renamed into
 // place, verified against their name on every read, and chunked into a
-// manifest above a bound.
+// manifest above a bound. A manifest lives at blobs/<xx>/<rest>.manifest
+// and is told from a blob by that name and never by its bytes (D-26): a
+// blob whose bytes look like a manifest is a blob.
 package blob
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -77,16 +78,16 @@ func (s Store) Path(identity string) (string, error) {
 }
 
 // Put stores the bytes read from r and returns their identity. Above the
-// bound the bytes are stored as chunks and a manifest, and the manifest's
-// identity is returned (§3.3). Idempotent: a blob already present is not
-// rewritten.
+// bound the bytes are stored as chunks and a manifest file, and the
+// manifest's identity -- the hash of the manifest's own bytes -- is returned
+// (§3.3). Idempotent: a blob already present is not rewritten.
 func (s Store) Put(r io.Reader) (string, error) {
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return "", err
 	}
 	if int64(len(data)) <= s.bound() {
-		return s.putOne(data)
+		return s.putOne(data, "")
 	}
 	m := Manifest{Cairn: "manifest", V: 1, Size: int64(len(data))}
 	for off := int64(0); off < int64(len(data)); off += s.chunk() {
@@ -94,7 +95,7 @@ func (s Store) Put(r io.Reader) (string, error) {
 		if end > int64(len(data)) {
 			end = int64(len(data))
 		}
-		id, err := s.putOne(data[off:end])
+		id, err := s.putOne(data[off:end], "")
 		if err != nil {
 			return "", err
 		}
@@ -104,15 +105,18 @@ func (s Store) Put(r io.Reader) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return s.putOne(mb)
+	return s.putOne(mb, manifestSuffix)
 }
 
-func (s Store) putOne(data []byte) (string, error) {
+const manifestSuffix = ".manifest"
+
+func (s Store) putOne(data []byte, suffix string) (string, error) {
 	id := canon.Hash(data)
 	path, err := s.Path(id)
 	if err != nil {
 		return "", err
 	}
+	path += suffix
 	// idempotent, and self-healing: a verified file under the name is the
 	// blob; anything else under the name (a corrupt file, a directory) is
 	// not, and the write goes ahead -- the rename then succeeds over a file
@@ -150,23 +154,30 @@ func (s Store) putOne(data []byte) (string, error) {
 }
 
 // Get returns the bytes of the identity, verified: a file whose bytes do not
-// hash to its name is refused by name (§3.2). A manifest is followed and the
-// large blob's bytes are returned whole; the manifest itself is readable
-// with GetRaw.
+// hash to its name is refused by name (§3.2). The identity is looked up as a
+// blob first and as a manifest second, by file name; a manifest is followed
+// and the large blob's bytes are returned whole, and a manifest whose
+// chunks do not resolve to its stated size is refused by name.
 func (s Store) Get(identity string) ([]byte, error) {
-	data, err := s.GetRaw(identity)
+	data, isManifest, err := s.read(identity)
 	if err != nil {
 		return nil, err
 	}
-	m, ok := asManifest(data)
-	if !ok {
+	if !isManifest {
 		return data, nil
+	}
+	var m Manifest
+	if err := json.Unmarshal(data, &m); err != nil || m.Cairn != "manifest" || m.V != 1 {
+		return nil, fmt.Errorf("blob: %s%s is not a manifest of §3.4", identity, manifestSuffix)
 	}
 	out := make([]byte, 0, m.Size)
 	for _, c := range m.Chunks {
-		cb, err := s.GetRaw(c)
+		cb, isM, err := s.read(c)
 		if err != nil {
 			return nil, fmt.Errorf("blob: manifest %s: chunk %w", identity, err)
+		}
+		if isM {
+			return nil, fmt.Errorf("blob: manifest %s: chunk %s is itself a manifest", identity, c)
 		}
 		out = append(out, cb...)
 	}
@@ -176,45 +187,43 @@ func (s Store) Get(identity string) ([]byte, error) {
 	return out, nil
 }
 
-// GetRaw returns the bytes stored under the identity exactly, verified, with
-// no manifest following.
+// GetRaw returns the bytes stored under the identity exactly, verified: a
+// blob's bytes, or a manifest's own bytes.
 func (s Store) GetRaw(identity string) ([]byte, error) {
+	data, _, err := s.read(identity)
+	return data, err
+}
+
+// IsManifest reports whether the identity is stored as a manifest, by its
+// file name (D-26).
+func (s Store) IsManifest(identity string) (bool, error) {
+	_, isM, err := s.read(identity)
+	return isM, err
+}
+
+// read finds the identity as a blob or, failing that, as a manifest, and
+// verifies the bytes against the identity either way.
+func (s Store) read(identity string) ([]byte, bool, error) {
 	path, err := s.Path(identity)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	data, err := os.ReadFile(path)
+	isManifest := false
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("%w: %s", ErrNotFound, identity)
+		data, err = os.ReadFile(path + manifestSuffix)
+		isManifest = true
+		path += manifestSuffix
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false, fmt.Errorf("%w: %s", ErrNotFound, identity)
 	}
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	sum := sha256.Sum256(data)
 	if "sha256:"+hex.EncodeToString(sum[:]) != identity {
-		return nil, fmt.Errorf("%w: %s at %s", ErrHashMismatch, identity, path)
+		return nil, false, fmt.Errorf("%w: %s at %s", ErrHashMismatch, identity, path)
 	}
-	return data, nil
-}
-
-// IsManifest reports whether the verified bytes of the identity are a
-// manifest of §3.4.
-func (s Store) IsManifest(identity string) (bool, error) {
-	data, err := s.GetRaw(identity)
-	if err != nil {
-		return false, err
-	}
-	_, ok := asManifest(data)
-	return ok, nil
-}
-
-func asManifest(data []byte) (Manifest, bool) {
-	if !bytes.HasPrefix(data, []byte(`{"cairn":"manifest"`)) {
-		return Manifest{}, false
-	}
-	var m Manifest
-	if err := json.Unmarshal(data, &m); err != nil || m.Cairn != "manifest" || m.V != 1 {
-		return Manifest{}, false
-	}
-	return m, true
+	return data, isManifest, nil
 }

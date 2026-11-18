@@ -106,6 +106,9 @@ func TestManifestAtTheBoundAndOneOver(t *testing.T) {
 		t.Fatal("a blob one over the bound must be a manifest")
 	}
 	raw, _ := s.GetRaw(mid)
+	if mp, _ := s.Path(mid); !fileExists(mp+".manifest") || fileExists(mp) {
+		t.Fatalf("a manifest lives at <path>.manifest and nowhere else (D-26)")
+	}
 	if !strings.HasPrefix(string(raw), `{"cairn":"manifest","v":1,"size":1001,"chunks":["sha256:`) {
 		t.Fatalf("manifest form: %s", raw)
 	}
@@ -202,5 +205,74 @@ func TestPutRewritesACorruptFile(t *testing.T) {
 	}
 	if got, err := s.Get(id); err != nil || !bytes.Equal(got, data) {
 		t.Fatalf("after the rewrite: %v %q", err, got)
+	}
+}
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
+}
+
+// D-26 (quill, coop main/993 finding 3): a blob whose bytes are a valid
+// manifest is a blob. Get(Put(x)) == x and the bytes hash to the identity.
+func TestManifestShapedUserBytesAreABlob(t *testing.T) {
+	s := newStore(t)
+	inner, _ := s.Put(strings.NewReader("the chunk a forged manifest would point at"))
+	user := []byte(`{"cairn":"manifest","v":1,"size":42,"chunks":["` + inner + `"]}`)
+	id, err := s.Put(bytes.NewReader(user))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Get(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, user) {
+		t.Fatalf("Get(Put(x)) != x: got %q", got)
+	}
+	if m, _ := s.IsManifest(id); m {
+		t.Fatal("a user's manifest-shaped bytes read as a manifest")
+	}
+}
+
+// D-26 (finding 4): a manifest larger than the bound is still one manifest
+// file, since the manifest is exempt from the bound, and the large blob
+// round-trips through it.
+func TestManifestAboveTheBoundIsStillOneManifest(t *testing.T) {
+	s := Store{Root: t.TempDir(), Bound: 200, ChunkSize: 50}
+	big := make([]byte, 5000)
+	rand.New(rand.NewSource(5)).Read(big)
+	id, err := s.Put(bytes.NewReader(big))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := s.GetRaw(id)
+	if len(raw) <= 200 {
+		t.Fatalf("the arm needs a manifest over the bound; this one is %d bytes", len(raw))
+	}
+	if m, _ := s.IsManifest(id); !m {
+		t.Fatal("the manifest must be stored as a manifest")
+	}
+	if got, err := s.Get(id); err != nil || !bytes.Equal(got, big) {
+		t.Fatalf("round trip: %v", err)
+	}
+}
+
+// §3.3: a manifest whose chunks do not resolve to its stated size is refused
+// by name (quill's surviving mutant, main/993). The manifest is rewritten
+// with a wrong size under its own hash so every chunk still verifies.
+func TestManifestWithWrongSizeIsRefused(t *testing.T) {
+	s := Store{Root: t.TempDir(), Bound: 100, ChunkSize: 40}
+	data := bytes.Repeat([]byte("y"), 150)
+	id, _ := s.Put(bytes.NewReader(data))
+	raw, _ := s.GetRaw(id)
+	forged := []byte(strings.Replace(string(raw), `"size":150`, `"size":149`, 1))
+	fid := "sha256:" + func() string { h := sha256.Sum256(forged); return hex.EncodeToString(h[:]) }()
+	fp, _ := s.Path(fid)
+	os.MkdirAll(filepath.Dir(fp), 0o755)
+	os.WriteFile(fp+".manifest", forged, 0o644)
+	_, err := s.Get(fid)
+	if err == nil || !strings.Contains(err.Error(), "says size 149, chunks hold 150") {
+		t.Fatalf("wrong size: %v", err)
 	}
 }

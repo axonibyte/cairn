@@ -48,13 +48,20 @@ temporary name and renamed into place; a reader that finds a blob whose hash
 does not match its name MUST refuse it by name.
 
 3.3. Blobs above a bound (default 8 MiB, an instance setting) MUST be stored
-as a **manifest**: a blob in the format of section 3.4 listing the identities
-of its chunks in order. The manifest's identity is the large blob's identity
-for every purpose except byte retrieval. Chunk size is an instance setting;
-the default is 4 MiB. Chunks are blobs.
+as a **manifest**: a file in the format of section 3.4 listing the
+identities of its chunks in order, stored at the blob's path with the suffix
+`.manifest` (`blobs/<xx>/<rest>.manifest`). The manifest's identity is the
+large blob's identity for every purpose except byte retrieval, and a reader
+MUST tell a manifest from a blob by its file name and never by its contents:
+the bytes of a blob are opaque, and a blob whose bytes happen to look like a
+manifest is a blob (D-26). A manifest file is not itself subject to the
+bound. Chunk size is an instance setting; the default is 4 MiB. Chunks are
+blobs. A manifest whose chunks do not resolve to exactly `size` bytes MUST be
+refused by name.
 
 3.4. A manifest is UTF-8 JSON: `{"cairn":"manifest","v":1,"size":N,
-"chunks":["sha256:...", ...]}`. Keys MUST be emitted in that order.
+"chunks":["sha256:...", ...]}`. Keys MUST be emitted in that order. The
+manifest's identity is the SHA-256 of the manifest's own bytes.
 
 3.5. A blob carries no metadata. Everything about a blob is edges.
 
@@ -84,6 +91,25 @@ edge (section 7.4).
 An edge reference is `edge:<seq>` within the same store. A concept id is
 `c:<ulid>`, minted by the writer at creation. A literal is `lit:` followed
 by a UTF-8 string.
+
+4.2a. **Canonical JSON** (D-25). Two forms of an edge are defined: the
+**signing form**, the edge without `sig`, which the writer signs (section
+8.3); and the **written form**, the signing form with `sig` appended, which
+is the line in the log, the input of the chain hash (section 8.7) and the
+form every other reference to "the canonical form" means. Both are UTF-8
+JSON with: the keys in the order of the table above and, inside `a`, sorted
+bytewise; no whitespace outside strings; strings escaped only as `\"`, `\\`
+and, for control characters below U+0020, `\u00XX` with lowercase hex, every
+other character including non-ASCII, `/`, `<`, `>` and `&` written raw;
+integers as decimal digits with no sign for zero, no leading zeros, no
+fraction and no exponent; `true`, `false` and `null` as written. An
+attribute value MUST be a string, an integer in the range of a signed 64-bit
+number, `true`, `false`, `null`, or an array of those; a fractional or
+exponent number is not an attribute value and MUST be refused by name, as
+MUST a duplicate key anywhere in the edge. These rules exist so that two
+implementations, one of them a shell with a JSON tool, produce the same
+bytes for the same edge; a tool that cannot produce them is not a conformant
+writer, though it may still be a reader.
 
 4.3. Ordering is by `seq`. `t` is informational: a reader MUST order by
 `seq` and MAY use `t` to relate edges across stores. A writer MUST emit
@@ -194,8 +220,8 @@ writer. One principal holds one writer per machine (D-8); a principal that
 writes from a second machine registers a second key. Key rotation is a new
 `key-of` edge plus a `supersedes` edge from the new writer to the old.
 
-8.3. The **signature** is over the canonical form: the edge's JSON with keys
-in the order of section 4.2, no whitespace, `sig` omitted, UTF-8. A store
+8.3. The **signature** is over the signing form of section 4.2a: the edge's
+canonical JSON with `sig` omitted. A store
 MUST verify every appended signature against a `key-of`-registered writer
 or, for the first edges of a new store, against the store's founding writer
 named in its configuration.
@@ -211,7 +237,8 @@ writer's.
 later session is the same writer.
 
 8.7. **The chain and the seal.** Every edge carries `prev`, the hash of the
-previous edge's canonical form, so the log is a hash chain and any altered
+previous edge's written form (section 4.2a: `sig` included, so a forged
+signature breaks the chain too), so the log is a hash chain and any altered
 or removed edge breaks every hash after it. A **seal** is an edge of core
 type `seal` whose subject is `edge:<seq>` (the last edge sealed) and whose
 `sig` is an `mldsa65` signature by the writer's post-quantum key over the

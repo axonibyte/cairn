@@ -204,3 +204,36 @@ hold expected signatures for both suites; the hedged variant is a later
 suite id if ever wanted. Refused: base64 (compact, but two encodings of one
 key look different to grep); storing expanded private keys (two formats).
 
+**D-25, 2026-11-18. Canonical JSON is specified to the byte, and an
+attribute value is a string, a 64-bit integer, a boolean, null or an array
+of those.** *quill found the gap (coop main/993, four rules the code carried
+that the document did not); Claude decided.* The first signing code had
+closed the gap four times on its own -- sorting `a`, preserving number
+literals as written, writing `<&>` raw, taking the last of duplicate keys --
+and a second implementation in shell could have disagreed at every one
+while producing an edge that looked valid. SPEC §4.2a now states the key
+order, the sorting of `a` at every depth, the exact string escapes, the
+integer form, the refusal of fractional and exponent numbers and of
+duplicate keys, and names the two forms the code already distinguished: the
+signing form (no `sig`) and the written form (with `sig`, the line, the
+chain's input). Fractional numbers are refused rather than canonicalized
+because no two JSON tools agree on how to print a float; an instance that
+needs one stores it as a string or a literal. Refused: leaving numbers to
+the writer's tool (a signature that depends on the tool); base-10 floats
+with a fixed precision (still two tools, two answers).
+
+**D-26, 2026-11-18. A manifest is told from a blob by its file name, never
+by its bytes, and is not subject to the bound.** *quill found it (main/993,
+findings 3 and 4); Claude decided.* The first blob store recognized a
+manifest by sniffing its prefix, so a user's 123-byte document that was a
+valid manifest came back from Get as its chunk's bytes -- Get(Put(x)) was
+not x, which is the one property content addressing exists to give -- and a
+manifest larger than the bound was itself stored flat against §3.3's
+letter. SPEC §3.3 now stores manifests at `<path>.manifest`, forbids
+telling them from blobs by content (§3.5: a blob carries no metadata), and
+exempts the manifest file from the bound; a manifest whose chunks do not
+resolve to its stated size is refused by name. Refused: a `manifest` core
+relation (an edge for every large blob, and a reader of the file layout
+would need the log to read a blob); a distinct identity prefix (the large
+blob's identity must stay the manifest's hash so references do not fork).
+

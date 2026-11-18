@@ -3,10 +3,14 @@
 // through this package, so there is exactly one answer to "what are the
 // bytes of this edge".
 //
-// The canonical form is the edge's JSON with keys in the order of SPEC §4.2
-// (seq, t, w, prev, rel, s, o, a, sig), no whitespace, UTF-8, with the keys
-// of `a` sorted bytewise. Signing omits `sig`; the chain hash is over the
-// signed edge, `sig` included, so that a forged signature breaks the chain.
+// Two forms (SPEC §4.2a): the signing form, without `sig`, and the written
+// form, with it -- the line in the log and the chain's input, so that a
+// forged signature breaks the chain. Both are the edge's JSON with keys in
+// §4.2's order, the keys of `a` sorted bytewise, no whitespace, strings
+// escaped exactly as §4.2a says and nothing else escaped, integers as plain
+// decimal, and attribute values limited to strings, 64-bit integers,
+// booleans, null and arrays of those; anything else is refused by name, as
+// is a duplicate key.
 package canon
 
 import (
@@ -16,7 +20,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"math"
 	"sort"
+	"strconv"
+	"unicode/utf8"
 )
 
 // Edge is one line of the log. Field names follow SPEC §4.2; O, A and Sig
@@ -42,6 +50,14 @@ var ErrUnknownKey = errors.New("canon: unknown key")
 // ErrMissing is returned by Parse for a required key that is absent.
 var ErrMissing = errors.New("canon: missing key")
 
+// ErrValue is returned for an attribute value SPEC §4.2a does not admit: a
+// fractional or exponent number, a nested object, a number out of the
+// signed 64-bit range, or a non-UTF-8 string.
+var ErrValue = errors.New("canon: value not admitted")
+
+// ErrDuplicateKey is returned by Parse for a key that appears twice.
+var ErrDuplicateKey = errors.New("canon: duplicate key")
+
 // Canonical returns the canonical bytes of e, with or without its signature.
 // withSig false is the signing form (§8.3); true is the line that is written
 // and hashed (§8.7).
@@ -60,13 +76,13 @@ func Canonical(e Edge, withSig bool) ([]byte, error) {
 		if b.Len() > 1 {
 			b.WriteByte(',')
 		}
-		kb, err := json.Marshal(k)
+		kb, err := escapeString(k)
 		if err != nil {
 			return err
 		}
 		b.Write(kb)
 		b.WriteByte(':')
-		vb, err := marshalValue(v)
+		vb, err := marshalValue(v, 0)
 		if err != nil {
 			return fmt.Errorf("canon: %s: %w", k, err)
 		}
@@ -103,12 +119,16 @@ func Canonical(e Edge, withSig bool) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-// marshalValue encodes v with object keys sorted bytewise at every depth and
-// no whitespace, so two attribute maps with the same content give the same
-// bytes whatever order they were built in.
-func marshalValue(v any) ([]byte, error) {
+// marshalValue encodes v by §4.2a: object keys sorted bytewise at every
+// depth (only `a` itself is an object; a nested object is refused), strings
+// escaped by escapeString, integers as decimal, booleans and null as
+// written, arrays of those. Depth 0 is `a`; a map below it is refused.
+func marshalValue(v any, depth int) ([]byte, error) {
 	switch x := v.(type) {
 	case map[string]any:
+		if depth > 0 {
+			return nil, fmt.Errorf("%w: a nested object", ErrValue)
+		}
 		ks := make([]string, 0, len(x))
 		for k := range x {
 			ks = append(ks, k)
@@ -120,15 +140,15 @@ func marshalValue(v any) ([]byte, error) {
 			if i > 0 {
 				b.WriteByte(',')
 			}
-			kb, err := json.Marshal(k)
+			kb, err := escapeString(k)
 			if err != nil {
 				return nil, err
 			}
 			b.Write(kb)
 			b.WriteByte(':')
-			vb, err := marshalValue(x[k])
+			vb, err := marshalValue(x[k], depth+1)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("%s: %w", k, err)
 			}
 			b.Write(vb)
 		}
@@ -141,7 +161,7 @@ func marshalValue(v any) ([]byte, error) {
 			if i > 0 {
 				b.WriteByte(',')
 			}
-			eb, err := marshalValue(el)
+			eb, err := marshalValue(el, depth+1)
 			if err != nil {
 				return nil, err
 			}
@@ -149,15 +169,63 @@ func marshalValue(v any) ([]byte, error) {
 		}
 		b.WriteByte(']')
 		return b.Bytes(), nil
-	default:
-		var b bytes.Buffer
-		enc := json.NewEncoder(&b)
-		enc.SetEscapeHTML(false)
-		if err := enc.Encode(v); err != nil {
-			return nil, err
+	case string:
+		return escapeString(x)
+	case bool:
+		if x {
+			return []byte("true"), nil
 		}
-		return bytes.TrimRight(b.Bytes(), "\n"), nil
+		return []byte("false"), nil
+	case nil:
+		return []byte("null"), nil
+	case int:
+		return []byte(strconv.FormatInt(int64(x), 10)), nil
+	case int64:
+		return []byte(strconv.FormatInt(x, 10)), nil
+	case uint64:
+		if x > math.MaxInt64 {
+			return nil, fmt.Errorf("%w: %d is above the signed 64-bit range", ErrValue, x)
+		}
+		return []byte(strconv.FormatUint(x, 10)), nil
+	case json.Number:
+		if _, err := strconv.ParseInt(string(x), 10, 64); err != nil {
+			return nil, fmt.Errorf("%w: number %s is not a 64-bit integer written as decimal digits", ErrValue, x)
+		}
+		return []byte(string(x)), nil
+	case float64:
+		if x != math.Trunc(x) || math.Abs(x) > math.MaxInt64 {
+			return nil, fmt.Errorf("%w: number %v is not a 64-bit integer", ErrValue, x)
+		}
+		return []byte(strconv.FormatInt(int64(x), 10)), nil
+	default:
+		return nil, fmt.Errorf("%w: a %T", ErrValue, v)
 	}
+}
+
+// escapeString writes a JSON string by §4.2a: only `"`, `\\` and the
+// control characters below U+0020 are escaped, the last as \u00xx with
+// lowercase hex; everything else, non-ASCII included, is written raw. A
+// string that is not valid UTF-8 is refused by name.
+func escapeString(s string) ([]byte, error) {
+	if !utf8.ValidString(s) {
+		return nil, fmt.Errorf("%w: a string that is not UTF-8", ErrValue)
+	}
+	var b bytes.Buffer
+	b.WriteByte('"')
+	for _, r := range s {
+		switch {
+		case r == '"':
+			b.WriteString(`\"`)
+		case r == '\\':
+			b.WriteString(`\\`)
+		case r < 0x20:
+			fmt.Fprintf(&b, `\u%04x`, r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('"')
+	return b.Bytes(), nil
 }
 
 // Hash is the identity of a byte sequence in the form SPEC §3.1 and §8.7
@@ -172,6 +240,9 @@ func Hash(b []byte) string {
 // §4.2 does not name is refused by name, a required key that is absent is
 // refused by name, and `a` must be a flat object.
 func Parse(line []byte) (Edge, error) {
+	if err := refuseDuplicateKeys(line); err != nil {
+		return Edge{}, err
+	}
 	var raw map[string]json.RawMessage
 	dec := json.NewDecoder(bytes.NewReader(line))
 	dec.UseNumber()
@@ -227,12 +298,63 @@ func Parse(line []byte) (Edge, error) {
 		if err := d.Decode(&a); err != nil {
 			return Edge{}, fmt.Errorf("canon: a must be an object: %w", err)
 		}
-		for k, x := range a {
-			if _, nested := x.(map[string]any); nested {
-				return Edge{}, fmt.Errorf("canon: a is not flat: %q holds an object", k)
-			}
+		// every value must be one §4.2a admits; marshalValue is the judge
+		if _, err := marshalValue(a, 0); err != nil {
+			return Edge{}, fmt.Errorf("canon: a: %w", err)
 		}
 		e.A = a
 	}
 	return e, nil
+}
+
+// refuseDuplicateKeys walks the tokens of a JSON text and refuses by name a
+// key that appears twice in one object, at any depth, which encoding/json
+// would otherwise resolve silently by taking the last.
+func refuseDuplicateKeys(line []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(line))
+	dec.UseNumber()
+	type frame struct {
+		object    bool
+		seen      map[string]bool
+		expectKey bool
+	}
+	var stack []*frame
+	for {
+		tok, err := dec.Token()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return nil // the decoder that follows reports the syntax error
+		}
+		switch t := tok.(type) {
+		case json.Delim:
+			switch t {
+			case '{':
+				stack = append(stack, &frame{object: true, seen: map[string]bool{}, expectKey: true})
+			case '[':
+				stack = append(stack, &frame{})
+			case '}', ']':
+				stack = stack[:len(stack)-1]
+				if len(stack) > 0 && stack[len(stack)-1].object {
+					stack[len(stack)-1].expectKey = true
+				}
+			}
+		default:
+			if len(stack) == 0 {
+				continue
+			}
+			top := stack[len(stack)-1]
+			if top.object && top.expectKey {
+				k := t.(string)
+				if top.seen[k] {
+					return fmt.Errorf("%w: %q", ErrDuplicateKey, k)
+				}
+				top.seen[k] = true
+				top.expectKey = false
+			} else if top.object {
+				top.expectKey = true
+			}
+		}
+	}
 }
