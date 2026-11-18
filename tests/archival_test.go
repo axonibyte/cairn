@@ -155,3 +155,31 @@ func sealingKey(t *testing.T, root string) *writer.Key {
 	}
 	return k
 }
+
+// The script names its own missing tool and exits 3 without examining the
+// store, rather than blaming the data (quill, coop main/1012 finding 10).
+// PATH is reduced to a directory holding sh's needs but no jq.
+func TestTheScriptNamesItsOwnMissingTool(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "s")
+	if _, err := store.Init(root, 0, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	for _, tool := range []string{"sha256sum", "cut", "ls", "sort", "basename", "dirname", "find", "wc", "mktemp", "rm", "printf", "cat"} {
+		if p, err := exec.LookPath(tool); err == nil {
+			os.Symlink(p, filepath.Join(bin, tool))
+		}
+	}
+	cmd := exec.Command("sh", "../tools/archive-check.sh", root)
+	cmd.Env = []string{"PATH=" + bin}
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("the script passed without jq:\n%s", out)
+	}
+	if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != 3 {
+		t.Fatalf("exit %v, want 3:\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "jq is not on PATH") || strings.Contains(string(out), "not JSON") {
+		t.Fatalf("the refusal must name jq and not blame the store:\n%s", out)
+	}
+}

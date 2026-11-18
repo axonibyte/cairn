@@ -328,6 +328,19 @@ matter and is not part of this specification.
 10.2. An index MUST expose `At()` and MUST refuse to answer a query with a
 staler `At()` than the store's log head when asked for a consistent answer.
 
+10.3. **What an index may not do** (D-29). An index MUST NOT answer any
+question the log and the blobs cannot answer: every fact it returns MUST be
+derivable from edges at or before its `At()`, and an index that returns a
+fact with no edge behind it is defective, whatever the fact. It MUST NOT be
+written to by anything but the apply of edges from the log; an instance that
+needs a fact recorded appends an edge. A rebuild from `ReadLog(1)` MUST
+produce an index that answers every query identically to the one it
+replaces at the same `At()`, and a conformant implementation MUST carry a
+test that rebuilds and compares. An index MUST NOT be the only copy of
+anything: a store whose index is deleted has lost nothing, and a reader MUST
+be able to tell which answers came from an index (`At()` present) and which
+from the log directly.
+
 ## 11. The query
 
 11.1. A **query** is a conjunction of terms, each term a relation and an

@@ -11,8 +11,16 @@
 #   archive-check.sh <store root>            check a store
 #   archive-check.sh --vectors <vectors.json> check the vector file's forms
 #
-# Exit 0 when everything holds; 1 with the first failure named; 2 usage.
+# Exit 0 when everything holds; 1 with the first failure named; 2 usage;
+# 3 when jq or sha256sum is missing, named, with the store unexamined.
 set -u
+
+# preflight: this script exists to be believed when nothing else is left, so
+# a missing tool is named as its own failure and never blamed on the store
+# (quill, coop main/1012 finding 10)
+for tool in jq sha256sum; do
+  command -v "$tool" >/dev/null 2>&1 || { echo "archive-check: FAIL: $tool is not on PATH; the store was not examined" >&2; exit 3; }
+done
 
 canon='{seq,t,w,prev,rel,s}
   + (if has("o") then {o} else {} end)

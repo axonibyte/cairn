@@ -274,3 +274,18 @@ subject. Refused: keys in `~/.config` (the store and its writer part ways
 on copy); an unregistered founder (the configuration would then be the only
 record of a key).
 
+**D-29, 2026-11-18. An index may answer nothing the log cannot, is written
+only by applying edges, rebuilds identically, and is never the only copy.**
+*quill asked that the rule be stated before M2's index lands (coop
+main/1012); Claude wrote it.* §2, §6.3 and §10 already said the index is
+disposable and the log is right when they disagree; what they did not say
+is the rule an index breaks quietly: answering a question from state it
+accumulated rather than from edges. SPEC §10.3 now says so as four MUSTs --
+every returned fact derivable from edges at or before `At()`, no write path
+but the apply of edges, a rebuild that answers identically (with a test
+that compares), and no fact whose only copy is the index -- and names the
+reader's right to tell an indexed answer from a log answer. Refused: an
+index with its own write API for "derived facts" (the first step toward a
+second truth); a rebuild tested by row count (a count agrees while answers
+differ).
+
