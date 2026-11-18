@@ -45,6 +45,10 @@ var (
 	// ErrKeyOf is a key-of edge that does not register a key: the subject is
 	// not the id of the key in a.pub, or a.pub is missing or malformed.
 	ErrKeyOf = errors.New("log: key-of does not register its key")
+	// ErrSealOwed is a segment that reached its bound without a seal as its
+	// last line (§8.7): on append, the write is refused before it happens;
+	// on open or read, the store is refused by name.
+	ErrSealOwed = errors.New("log: a rolled segment is unsealed")
 )
 
 // Founder is the store's founding writer (§8.3): the public keys the first
@@ -67,6 +71,7 @@ type Log struct {
 	lastSeq      uint64
 	lastHash     string
 	lastSeal     uint64
+	lastSealedAt uint64 // the seq of the last seal edge itself
 }
 
 // Open opens the log under root, creating log/ if absent, replaying what
@@ -170,6 +175,9 @@ func (l *Log) replay(name string) (int, int64, error) {
 	if err := sc.Err(); err != nil {
 		return 0, 0, err
 	}
+	if size >= l.SegmentBytes && l.lastSealedAt != l.lastSeq {
+		return 0, 0, fmt.Errorf("%w: segment %06d is %d bytes, at or over its bound of %d, and its last line (seq %d) is not a seal", ErrSealOwed, n, size, l.SegmentBytes, l.lastSeq)
+	}
 	return n, size, nil
 }
 
@@ -239,6 +247,7 @@ func (l *Log) advance(e canon.Edge, written []byte) {
 		l.keys[e.S] = pub
 	case RelSeal:
 		l.lastSeal = e.Seq
+		l.lastSealedAt = e.Seq
 	}
 }
 
@@ -267,14 +276,18 @@ func (l *Log) Append(e canon.Edge, sealer *writer.Key) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
+	// a roll owes a seal (§8.7), and the obligation is never left in a return
+	// value: when this line would reach the bound and no sealing key is here
+	// to pay it, nothing is written (quill, coop main/1001 finding 8)
+	rolls := l.segmentSize+int64(len(written))+1 >= l.SegmentBytes && e.Rel != RelSeal
+	if rolls && (sealer == nil || sealer.Suite != writer.MLDSA65) {
+		return 0, fmt.Errorf("%w: seq %d would roll segment %06d and a seal needs an mldsa65 key; nothing written", ErrSealOwed, e.Seq, l.segment)
+	}
 	if err := l.writeLine(written); err != nil {
 		return 0, err
 	}
 	l.advance(e, written)
-	if l.segmentSize >= l.SegmentBytes && e.Rel != RelSeal {
-		if sealer == nil {
-			return e.Seq, fmt.Errorf("log: segment %06d reached its bound at seq %d and no sealing key was given; the seal is owed", l.segment, e.Seq)
-		}
+	if rolls {
 		if _, err := l.Seal(sealer); err != nil {
 			return e.Seq, err
 		}
@@ -362,8 +375,11 @@ type Verified struct {
 // canonical form, every seq, prev and signature, every seal by the mldsa65
 // key over the last edge) and calls fn for each edge from seq `from` on.
 // It returns the seq of the last seal. A failure names the first bad seq.
-func Read(root string, founder Founder, from uint64, fn func(Verified) error) (lastSeal uint64, err error) {
-	l := &Log{Root: root, SegmentBytes: DefaultSegmentBytes, founder: founder, keys: map[string]writer.Public{}, lastHash: founder.Hash}
+func Read(root string, founder Founder, segmentBytes int64, from uint64, fn func(Verified) error) (lastSeal uint64, err error) {
+	if segmentBytes <= 0 {
+		segmentBytes = DefaultSegmentBytes
+	}
+	l := &Log{Root: root, SegmentBytes: segmentBytes, founder: founder, keys: map[string]writer.Public{}, lastHash: founder.Hash}
 	l.keys[founder.Signing.ID()] = founder.Signing
 	l.keys[founder.Sealing.ID()] = founder.Sealing
 	segs, err := l.segments()
@@ -377,8 +393,10 @@ func Read(root string, founder Founder, from uint64, fn func(Verified) error) (l
 		}
 		sc := bufio.NewScanner(f)
 		sc.Buffer(make([]byte, 1<<20), 64<<20)
+		var size int64
 		for sc.Scan() {
 			line := sc.Bytes()
+			size += int64(len(line)) + 1
 			e, perr := canon.Parse(line)
 			if perr != nil {
 				f.Close()
@@ -406,6 +424,9 @@ func Read(root string, founder Founder, from uint64, fn func(Verified) error) (l
 			return 0, serr
 		}
 		f.Close()
+		if size >= l.SegmentBytes && l.lastSealedAt != l.lastSeq {
+			return 0, fmt.Errorf("%w: segment %s is %d bytes, at or over its bound of %d, and its last line (seq %d) is not a seal", ErrSealOwed, seg, size, l.SegmentBytes, l.lastSeq)
+		}
 	}
 	return l.lastSeal, nil
 }

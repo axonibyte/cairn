@@ -56,7 +56,7 @@ func (f *fixture) append(t *testing.T, rel, s, o string) uint64 {
 
 func readAll(t *testing.T, f *fixture) (edges []canon.Edge, lastSeal uint64) {
 	t.Helper()
-	lastSeal, err := Read(f.root, f.founder, 1, func(v Verified) error { edges = append(edges, v.Edge); return nil })
+	lastSeal, err := Read(f.root, f.founder, f.log.SegmentBytes, 1, func(v Verified) error { edges = append(edges, v.Edge); return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +254,7 @@ func TestTamperingIsNamedAtTheFirstBadSeq(t *testing.T) {
 	// flip one byte inside edge 2's object string
 	alt := strings.Replace(lines[1], `"o":"lit:n"`, `"o":"lit:m"`, 1)
 	os.WriteFile(seg, []byte(strings.Join(append(append([]string{lines[0]}, alt), lines[2:]...), "\n")+"\n"), 0o644)
-	_, err := Read(f.root, f.founder, 1, nil)
+	_, err := Read(f.root, f.founder, f.log.SegmentBytes, 1, nil)
 	if !errors.Is(err, ErrChain) || !strings.Contains(err.Error(), "at seq 2") {
 		t.Fatalf("altered edge: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestTamperingIsNamedAtTheFirstBadSeq(t *testing.T) {
 
 	// remove edge 2: the gap is named at seq 2 (seq 3 arrives where 2 is due)
 	os.WriteFile(seg, []byte(strings.Join(append([]string{lines[0]}, lines[2:]...), "\n")+"\n"), 0o644)
-	_, err = Read(f.root, f.founder, 1, nil)
+	_, err = Read(f.root, f.founder, f.log.SegmentBytes, 1, nil)
 	if !errors.Is(err, ErrChain) || !strings.Contains(err.Error(), "at seq 3") {
 		t.Fatalf("removed edge: %v", err)
 	}
@@ -282,7 +282,7 @@ func TestTamperingIsNamedAtTheFirstBadSeq(t *testing.T) {
 		b[j] = '0'
 	}
 	os.WriteFile(seg, []byte(strings.Join(append(lines[:len(lines)-1], string(b)), "\n")+"\n"), 0o644)
-	_, err = Read(f.root, f.founder, 1, nil)
+	_, err = Read(f.root, f.founder, f.log.SegmentBytes, 1, nil)
 	if !errors.Is(err, ErrChain) || !strings.Contains(err.Error(), "at seq "+strconv.Itoa(len(lines))) {
 		t.Fatalf("tampered seal: %v", err)
 	}
@@ -293,12 +293,12 @@ func TestTamperingIsNamedAtTheFirstBadSeq(t *testing.T) {
 	// verify, so the line rule is the only thing refusing it, by name
 	spaced := strings.Replace(lines[0], `"rel":`, `"rel": `, 1)
 	os.WriteFile(seg, []byte(strings.Join(append([]string{spaced}, lines[1:]...), "\n")+"\n"), 0o644)
-	_, err = Read(f.root, f.founder, 1, nil)
+	_, err = Read(f.root, f.founder, f.log.SegmentBytes, 1, nil)
 	if !errors.Is(err, ErrChain) || !strings.Contains(err.Error(), "not its own canonical form") || !strings.Contains(err.Error(), "at seq 1") {
 		t.Fatalf("non-canonical line: %v", err)
 	}
 	restore()
-	if _, err := Read(f.root, f.founder, 1, nil); err != nil {
+	if _, err := Read(f.root, f.founder, f.log.SegmentBytes, 1, nil); err != nil {
 		t.Fatalf("control after restore: %v", err)
 	}
 }
@@ -321,7 +321,7 @@ func TestReopenContinuesTheChain(t *testing.T) {
 	}
 	f.log = l2
 	f.append(t, "names", "c:after", "lit:reopen")
-	if _, err := Read(f.root, f.founder, 1, nil); err != nil {
+	if _, err := Read(f.root, f.founder, f.log.SegmentBytes, 1, nil); err != nil {
 		t.Fatalf("chain after reopen: %v", err)
 	}
 	os.Rename(filepath.Join(f.root, "log", "000001.jsonl"), filepath.Join(f.root, "log", "000002.jsonl"))
@@ -342,7 +342,7 @@ func TestTenThousandEdges(t *testing.T) {
 	}
 	var n int
 	var prevSeq uint64
-	lastSeal, err := Read(f.root, f.founder, 1, func(v Verified) error {
+	lastSeal, err := Read(f.root, f.founder, f.log.SegmentBytes, 1, func(v Verified) error {
 		if v.Edge.Seq != prevSeq+1 {
 			return errors.New("out of order")
 		}
@@ -355,5 +355,67 @@ func TestTenThousandEdges(t *testing.T) {
 	}
 	if n < 10000 || lastSeal == 0 {
 		t.Fatalf("read %d edges, last seal %d", n, lastSeal)
+	}
+}
+
+// §8.7 (quill, coop main/1001 finding 8): a roll owes a seal and the
+// obligation is never held in a return value. An append that would reach
+// the bound with no sealing key is refused before anything is written; a
+// store on disk whose rolled segment does not end in a seal is refused by
+// name on Open and on Read, so no reader can be told the post-quantum bound
+// is 0 without a complaint.
+func TestAnOwedSealIsNeverLeftInAReturnValue(t *testing.T) {
+	f := newFixture(t, 600)
+	// drive to just under the roll with the sealer, then try the rolling edge without it
+	for {
+		e := f.edge(t, "names", "c:x", "lit:n")
+		w, _ := canon.Canonical(e, true)
+		if f.log.segmentSize+int64(len(w))+1 >= f.log.SegmentBytes {
+			before := f.log.LastSeq()
+			if _, err := f.log.Append(e, nil); !errors.Is(err, ErrSealOwed) || !strings.Contains(err.Error(), "nothing written") {
+				t.Fatalf("rolling append without a sealer: %v", err)
+			}
+			if f.log.LastSeq() != before {
+				t.Fatal("the refused edge was written")
+			}
+			if _, err := f.log.Append(e, f.signing); !errors.Is(err, ErrSealOwed) {
+				t.Fatalf("rolling append with the wrong suite as sealer: %v", err)
+			}
+			if _, err := f.log.Append(e, f.sealing); err != nil {
+				t.Fatalf("the same edge with the sealer: %v", err)
+			}
+			break
+		}
+		if _, err := f.log.Append(e, f.sealing); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := Read(f.root, f.founder, 600, 1, nil); err != nil {
+		t.Fatalf("control: %v", err)
+	}
+	// forge the on-disk state a crash could leave: segment 0 at its bound
+	// with its seal line removed; Open and Read both refuse by name
+	seg := filepath.Join(f.root, "log", "000000.jsonl")
+	orig, _ := os.ReadFile(seg)
+	lines := strings.Split(strings.TrimSuffix(string(orig), "\n"), "\n")
+	if !strings.Contains(lines[len(lines)-1], `"rel":"seal"`) {
+		t.Fatalf("segment 0 should end with a seal: %s", lines[len(lines)-1])
+	}
+	// the rule is about the bound: the same bytes with the seal line removed,
+	// read under a bound the segment exceeds, are a rolled segment that does
+	// not end in a seal, and both Open and Read refuse them by name
+	unsealed := strings.Join(lines[:len(lines)-1], "\n") + "\n"
+	os.WriteFile(seg, []byte(unsealed), 0o644)
+	os.Remove(filepath.Join(f.root, "log", "000001.jsonl"))
+	if _, err := Open(f.root, f.founder, 100); !errors.Is(err, ErrSealOwed) {
+		t.Fatalf("Open over a rolled unsealed segment: %v", err)
+	}
+	if _, err := Read(f.root, f.founder, 100, 1, nil); !errors.Is(err, ErrSealOwed) {
+		t.Fatalf("Read over a rolled unsealed segment: %v", err)
+	}
+	// under a bound the segment has not reached, the same bytes are a fine,
+	// unrolled, unsealed segment: the rule is about the bound, not the seal
+	if l, err := Open(f.root, f.founder, 1<<20); err != nil || l.LastSeal() != 0 {
+		t.Fatalf("Open under a large bound: %v", err)
 	}
 }

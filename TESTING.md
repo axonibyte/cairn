@@ -64,6 +64,10 @@ by the index and by walking the log by hand.
   and why.
 - Pipelines report the last command's status. A verdict is never chained to
   `head`, `grep -c` or any command that cannot fail.
+- `go test -short` is not the suite. Two arms skip under it by design, the
+  40 MiB manifest round trip and the ten-thousand-edge log, because they
+  cost seconds; a clear is given on `go test ./...` without `-short`, and a
+  reading that says "green" says which it ran.
 
 ## Order of return, starting from zero
 

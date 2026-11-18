@@ -72,7 +72,9 @@ terminated, in the file backend at `log/<segment>.jsonl` where segments are
 numbered from 000000 and rolled at an instance-set size (default 64 MiB).
 Lines are appended; a line, once written, MUST never be altered or removed
 by any operation other than a store-admin compaction that preserves every
-edge (section 7.4).
+edge (section 7.4). A line is one JSON value and nothing after it; a reader
+MAY tolerate trailing whitespace on a line, which is not part of the edge,
+and a writer MUST emit none, since the written form carries none.
 
 4.2. An edge has these fields, keys emitted in this order:
 
