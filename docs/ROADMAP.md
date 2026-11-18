@@ -27,7 +27,7 @@ prints its version. Nothing stores anything.
 the three documents read end to end by the repository owner; the roadmap
 broken into forge issues.
 
-## M1 — The store: blobs and the log — PLANNED
+## M1 — The store: blobs and the log — IN PROGRESS (from 2026-11-18)
 
 The file backend (SPEC §3, §4, §6.2) with no index, no query, no network.
 
