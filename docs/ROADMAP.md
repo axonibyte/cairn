@@ -57,9 +57,11 @@ The file backend (SPEC §3, §4, §6.2) with no index, no query, no network.
 
 **Readings at the close (2026-11-18).** P-2 the archive and P-7 the chain
 on a store of 10,013 edges in 9 sealed segments: the Go reader verifies it
-in about 14 s, the shell implementation (`archive-check.sh`, one sha256sum
-per line) in 134 s, both with every line its own canonical form and the
-chain whole from cairn.json. The oracle self-test of TESTING.md is not yet
+in about 14 s; the shell implementation (`archive-check.sh`, one sha256sum
+per line) in 134 s on harness-01 (FreeBSD 15.1, 4 cores, about 5.6 ms per
+process spawn, measured) and 13.4 s on quill's box, the figure being the
+box's fork cost and not the format's; both with every line its own
+canonical form and the chain whole from cairn.json. The oracle self-test of TESTING.md is not yet
 in place: M1's invariants are refusals, each mutation-checked in its commit
 (forty-odd mutants planted and caught across the eleven heads, every one
 that survived given its arm), and the self-test proper comes with M5b's
