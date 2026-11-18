@@ -186,3 +186,21 @@ implementation vectors, because the specification exists to be implemented
 by others and the archival shell script is already a second implementation;
 and simulated writers with a shadow model, because the defects an append-
 only store hides are the ones that appear only after history accumulates.
+
+**D-24, 2026-11-18. Encodings of keys and signatures are lowercase hex with
+the suite in front; a key's secret is its 32-byte seed; ML-DSA signs
+deterministically.** *Claude.* SPEC §8.1 names the suites and the sizes but
+not the bytes on the wire, and M1's first signing code had to choose. A key
+id is `k:<suite>:` and the hex SHA-256 of the public key's bytes; a public
+key travels as `<suite>:<hex>`; a signature is `<suite>:<hex>` of the raw
+signature (64 bytes for ed25519, 3,309 for mldsa65). Hex rather than base64
+so that a reader with a shell and no library can tell two keys apart and a
+vector file is unambiguous; the cost, a log line half again as long per
+signature, is paid in the per-edge suite that is 64 bytes. The secret a key
+file holds is the 32-byte seed of either suite, from which the pair is
+rebuilt, so one key file format serves both. ML-DSA-65 signatures are made
+deterministically (FIPS 204's deterministic variant) so the vector file can
+hold expected signatures for both suites; the hedged variant is a later
+suite id if ever wanted. Refused: base64 (compact, but two encodings of one
+key look different to grep); storing expanded private keys (two formats).
+

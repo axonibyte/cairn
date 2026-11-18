@@ -16,20 +16,31 @@ if ! command -v pkg >/dev/null 2>&1 || ! pkg -N >/dev/null 2>&1; then
   log "bootstrapping pkg"; pkg bootstrap -y
 fi
 
-if ! command -v go >/dev/null 2>&1; then
-  log "installing go"
-  pkg update -q >/dev/null 2>&1 || true
-  pkg install -y go >/dev/null
-fi
-command -v go >/dev/null 2>&1 || { log "REFUSED: no go after pkg install go; the package mirror or the template is the gap"; exit 2; }
-
-# go.mod names the minimum; the guest's go must meet it. Read both as
-# major.minor and compare numerically, so 1.27 is not read as older than 1.9.
+# go.mod names the minimum; the guest's go must meet it. FreeBSD ships one
+# package per Go minor (lang/go127 is /usr/local/bin/go127) beside a `go`
+# metaport that may lag it, so the versioned package named by go.mod is
+# what gets installed, and `go` is pointed at it when the metaport's is
+# older or absent. Read versions as major.minor and compare numerically,
+# so 1.27 is not read as older than 1.9.
 want=$(sed -n 's/^go \([0-9]*\.[0-9]*\).*/\1/p' go.mod)
-have=$(go version | sed -n 's/.*go\([0-9]*\.[0-9]*\).*/\1/p')
-wmaj=${want%%.*}; wmin=${want#*.}; hmaj=${have%%.*}; hmin=${have#*.}
-if [ "$hmaj" -lt "$wmaj" ] || { [ "$hmaj" -eq "$wmaj" ] && [ "$hmin" -lt "$wmin" ]; }; then
-  log "REFUSED: go $have on the guest is older than go.mod's $want"; exit 2
+wmaj=${want%%.*}; wmin=${want#*.}
+versioned="go${wmaj}${wmin}"
+meets() { # meets <go binary>: true when its version is at least go.mod's
+  have=$("$1" version 2>/dev/null | sed -n 's/.*go\([0-9]*\.[0-9]*\).*/\1/p')
+  [ -n "$have" ] || return 1
+  hmaj=${have%%.*}; hmin=${have#*.}
+  [ "$hmaj" -gt "$wmaj" ] || { [ "$hmaj" -eq "$wmaj" ] && [ "$hmin" -ge "$wmin" ]; }
+}
+if ! command -v go >/dev/null 2>&1 || ! meets go; then
+  log "installing $versioned (go.mod wants $want)"
+  pkg update -q >/dev/null 2>&1 || true
+  pkg install -y "$versioned" >/dev/null || pkg install -y go >/dev/null || true
+  if command -v "$versioned" >/dev/null 2>&1 && ! meets go 2>/dev/null; then
+    ln -sf "$(command -v "$versioned")" /usr/local/bin/go
+    log "go -> $versioned"
+  fi
 fi
+command -v go >/dev/null 2>&1 || { log "REFUSED: no go after pkg install $versioned; the package mirror or the template is the gap"; exit 2; }
+meets go || { log "REFUSED: $(go version) on the guest is older than go.mod's $want and $versioned is not in the mirror"; exit 2; }
 log "go: $(go version)"
 log "done"

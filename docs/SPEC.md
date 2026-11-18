@@ -182,10 +182,12 @@ later version MAY add suites and MUST NOT silently change what an
 identifier means (D-22).
 
 8.1. A **writer** is a signing key pair. Its id is `k:<suite>:` followed by
-the lowercase hex SHA-256 of the public key. Suites in 0.1: `ed25519`
+the lowercase hex SHA-256 of the public key's bytes. Suites in 0.1: `ed25519`
 (classical, the default per-edge suite, 64-byte signatures) and `mldsa65`
-(ML-DSA-65, FIPS 204, post-quantum, 3,309-byte signatures). A writer MAY
-hold one key of each suite under one principal; the `key-of` edges say so.
+(ML-DSA-65, FIPS 204, post-quantum, 3,309-byte signatures, signed
+deterministically). A public key travels as `<suite>:<hex>` and a signature
+is `<suite>:<hex>` of the raw signature bytes (D-24). A writer MAY hold one
+key of each suite under one principal; the `key-of` edges say so.
 
 8.2. A **principal** is a concept with at least one `key-of` edge from a
 writer. One principal holds one writer per machine (D-8); a principal that
