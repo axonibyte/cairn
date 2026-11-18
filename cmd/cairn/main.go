@@ -1,6 +1,8 @@
 // cairn is the command. M1's subcommands: init, put, edge, log, verify,
 // version. Each one is specified in docs/SPEC.md first and does one thing;
-// a refusal is written to stderr by name, stdout carries only answers.
+// a refusal is written to stderr by name; stdout carries exactly one value
+// per command (an identity, an id, a seq) so that a shell can compose them,
+// and every note goes to stderr.
 // Exit statuses: 0 answered, 1 the store refused (a verification or
 // shape failure, named), 2 usage.
 package main
@@ -27,9 +29,9 @@ func main() {
 const usage = `cairn: a content-addressed store of relations (docs/SPEC.md)
 
   cairn init <root>                              make a store: keys, cairn.json, the founder's key-of edges
-  cairn put <root> <file>|-                      store a blob (stdin with -), record wrote; prints the identity
-  cairn edge <root> <rel> <s> [<o>] [k=v ...]    append a signed edge; prints the seq
-  cairn concept <root> <name>                    mint a concept named by a literal; prints the id
+  cairn put <root> <file>|-                      store a blob (stdin with -), record wrote; stdout: the identity alone
+  cairn edge <root> <rel> <s> [<o>] [k=v ...]    append a signed edge; stdout: the seq alone
+  cairn concept <root> <name>                    mint a concept named by a literal; stdout: the id alone
   cairn log <root> [--from N]                    print the log's written forms from seq N
   cairn verify <root>                            verify every line, hash, signature and seal
   cairn version
@@ -80,10 +82,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if err != nil {
 			return refuse(stderr, "put", err)
 		}
+		// stdout is one value, the identity, so `ID=$(cairn put ...)` composes
+		// (quill, coop main/1008 finding 9); the rest is a note on stderr
+		fmt.Fprintf(stdout, "%s\n", id)
 		if seq == 0 {
-			fmt.Fprintf(stdout, "%s already\n", id)
+			fmt.Fprintf(stderr, "cairn put: %s was already here; no edge added\n", id)
 		} else {
-			fmt.Fprintf(stdout, "%s %d\n", id, seq)
+			fmt.Fprintf(stderr, "cairn put: wrote recorded at seq %d\n", seq)
 		}
 		return 0
 	case "edge":
@@ -132,7 +137,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if err != nil {
 			return refuse(stderr, "concept", err)
 		}
-		fmt.Fprintf(stdout, "%s %d\n", id, seq)
+		fmt.Fprintf(stdout, "%s\n", id)
+		fmt.Fprintf(stderr, "cairn concept: names recorded at seq %d\n", seq)
 		return 0
 	case "log":
 		fs := flag.NewFlagSet("log", flag.ContinueOnError)

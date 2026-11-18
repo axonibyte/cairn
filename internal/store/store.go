@@ -62,7 +62,7 @@ var (
 	// ErrRelation is a relation name neither core nor dotted (§5.2).
 	ErrRelation = errors.New("store: relation is neither core nor an instance relation with a dot")
 	// ErrIdentity is an s or o that is not a concept id, blob identity, edge reference or literal (§4.2).
-	ErrIdentity = errors.New("store: not a concept id, blob identity, edge reference or literal")
+	ErrIdentity = errors.New("not a concept id, writer id, blob identity, edge reference or literal")
 )
 
 type keyFile struct {
@@ -300,23 +300,23 @@ func within(kind string, kinds []string) bool {
 func checkShape(rel, subject, object string) error {
 	sk, ok := kindOf(subject), kindOf(object)
 	if sk == "" || sk == "literal" {
-		return fmt.Errorf("subject: %w: %q", ErrIdentity, subject)
+		return fmt.Errorf("subject %q is %w", subject, ErrIdentity)
 	}
 	if object != "" && ok == "" {
-		return fmt.Errorf("object: %w: %q", ErrIdentity, object)
+		return fmt.Errorf("object %q is %w", object, ErrIdentity)
 	}
 	shape, core := coreShape[rel]
 	if !core {
 		return nil
 	}
 	if !within(sk, shape[0]) {
-		return fmt.Errorf("subject: %w: %s takes %s, got a %s", ErrIdentity, rel, strings.Join(shape[0], " or "), sk)
+		return fmt.Errorf("subject %q: %s takes %s, got a %s (%w)", subject, rel, strings.Join(shape[0], " or "), sk, ErrIdentity)
 	}
 	if object == "" {
-		return fmt.Errorf("object: %w: %s takes %s, got none", ErrIdentity, rel, strings.Join(shape[1], " or "))
+		return fmt.Errorf("object: %s takes %s, got none (%w)", rel, strings.Join(shape[1], " or "), ErrIdentity)
 	}
 	if !within(ok, shape[1]) {
-		return fmt.Errorf("object: %w: %s takes %s, got a %s", ErrIdentity, rel, strings.Join(shape[1], " or "), ok)
+		return fmt.Errorf("object %q: %s takes %s, got a %s (%w)", object, rel, strings.Join(shape[1], " or "), ok, ErrIdentity)
 	}
 	return nil
 }

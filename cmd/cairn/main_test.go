@@ -58,18 +58,28 @@ func TestTheM1Walk(t *testing.T) {
 	if o.status != 0 {
 		t.Fatalf("concept: %+v", o)
 	}
-	concept := strings.Fields(o.stdout)[0]
+	// stdout is exactly one value per command, so ID=$(cairn ...) composes
+	// (quill, coop main/1008): the id, nothing beside it; the seq is a note
+	// on stderr
+	concept := strings.TrimSuffix(o.stdout, "\n")
+	if strings.ContainsAny(concept, " \n") || !strings.HasPrefix(concept, "c:") || !strings.Contains(o.stderr, "seq 3") {
+		t.Fatalf("concept stdout %q stderr %q", o.stdout, o.stderr)
+	}
 	o = cliStdin("a note about cal", "put", root, "-")
-	if o.status != 0 || !strings.HasPrefix(o.stdout, "sha256:") || !strings.HasSuffix(strings.TrimSpace(o.stdout), " 4") {
+	blob := strings.TrimSuffix(o.stdout, "\n")
+	if o.status != 0 || !strings.HasPrefix(blob, "sha256:") || len(blob) != 71 || !strings.Contains(o.stderr, "seq 4") {
 		t.Fatalf("put: %+v", o)
 	}
-	blob := strings.Fields(o.stdout)[0]
 	o = cliStdin("a note about cal", "put", root, "-")
-	if o.status != 0 || !strings.HasSuffix(strings.TrimSpace(o.stdout), " already") {
+	if o.status != 0 || strings.TrimSuffix(o.stdout, "\n") != blob || !strings.Contains(o.stderr, "already here") {
 		t.Fatalf("second put: %+v", o)
 	}
+	// and the composed value is accepted as a subject, which is the whole point
+	if o := cli("edge", root, "cites", blob, concept); o.status != 0 || strings.TrimSpace(o.stdout) != "5" {
+		t.Fatalf("edge with composed ids: %+v", o)
+	}
 	o = cli("edge", root, "is-about", blob, concept, "via=hand", "n=3", "ok=true")
-	if o.status != 0 || strings.TrimSpace(o.stdout) != "5" {
+	if o.status != 0 || o.stdout != "6\n" {
 		t.Fatalf("edge: %+v", o)
 	}
 	o = cli("log", root, "--from", "3")
@@ -77,11 +87,11 @@ func TestTheM1Walk(t *testing.T) {
 		t.Fatalf("log: %+v", o)
 	}
 	logLines := strings.Split(strings.TrimSpace(o.stdout), "\n")
-	if len(logLines) != 3 || !strings.HasPrefix(logLines[0], `{"seq":3,`) || !strings.Contains(logLines[2], `"a":{"n":3,"ok":true,"via":"hand"}`) || !strings.Contains(logLines[1], `"rel":"wrote","s":"`+writer+`","o":"`+blob+`"`) {
+	if len(logLines) != 4 || !strings.HasPrefix(logLines[0], `{"seq":3,`) || !strings.Contains(logLines[3], `"a":{"n":3,"ok":true,"via":"hand"}`) || !strings.Contains(logLines[1], `"rel":"wrote","s":"`+writer+`","o":"`+blob+`"`) {
 		t.Fatalf("log printed:\n%s", o.stdout)
 	}
 	o = cli("verify", root)
-	if o.status != 0 || !strings.HasPrefix(o.stdout, "verified 5 edges; last seal at seq 0") {
+	if o.status != 0 || !strings.HasPrefix(o.stdout, "verified 6 edges; last seal at seq 0") {
 		t.Fatalf("verify: %+v", o)
 	}
 	// refusals: status 1, named, nothing on stdout
