@@ -209,10 +209,22 @@ func marshalValue(v any, depth int) ([]byte, error) {
 	}
 }
 
-// escapeString writes a JSON string by §4.2a: only `"`, `\\` and the
-// control characters below U+0020 are escaped, the last as \u00xx with
-// lowercase hex; everything else, non-ASCII included, is written raw. A
-// string that is not valid UTF-8 is refused by name.
+// EscapeString is escapeString for the vector file: the one string encoding.
+func EscapeString(s string) string {
+	b, err := escapeString(s)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// escapeString writes a JSON string by §4.2a: `"` and `\\` escaped; the
+// five controls with short forms (backspace, form feed, newline, carriage
+// return, tab) as \b \f \n \r \t; every other control below U+0020 as
+// \u00xx with lowercase hex; everything else, non-ASCII included, written
+// raw. This is exactly what jq -c writes, so the shell implementation agrees
+// byte for byte (found by the archival script, D-25). A string that is not
+// valid UTF-8 is refused by name.
 func escapeString(s string) ([]byte, error) {
 	if !utf8.ValidString(s) {
 		return nil, fmt.Errorf("%w: a string that is not UTF-8", ErrValue)
@@ -225,6 +237,16 @@ func escapeString(s string) ([]byte, error) {
 			b.WriteString(`\"`)
 		case r == '\\':
 			b.WriteString(`\\`)
+		case r == '\b':
+			b.WriteString(`\b`)
+		case r == '\f':
+			b.WriteString(`\f`)
+		case r == '\n':
+			b.WriteString(`\n`)
+		case r == '\r':
+			b.WriteString(`\r`)
+		case r == '\t':
+			b.WriteString(`\t`)
 		case r < 0x20:
 			fmt.Fprintf(&b, `\u%04x`, r)
 		default:

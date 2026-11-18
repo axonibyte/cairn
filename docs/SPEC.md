@@ -100,9 +100,11 @@ by a UTF-8 string.
 is the line in the log, the input of the chain hash (section 8.7) and the
 form every other reference to "the canonical form" means. Both are UTF-8
 JSON with: the keys in the order of the table above and, inside `a`, sorted
-bytewise; no whitespace outside strings; strings escaped only as `\"`, `\\`
-and, for control characters below U+0020, `\u00XX` with lowercase hex, every
-other character including non-ASCII, `/`, `<`, `>` and `&` written raw;
+bytewise; no whitespace outside strings; strings escaped only as `\"`, `\\`,
+the five short forms `\b`, `\f`, `\n`, `\r`, `\t` for those characters, and
+`\u00XX` with lowercase hex for every other control character below U+0020,
+every other character including non-ASCII, `/`, `<`, `>` and `&` written
+raw (the escapes jq writes, so that the shell implementation agrees);
 integers as decimal digits with no sign for zero, no leading zeros, no
 fraction and no exponent; `true`, `false` and `null` as written. An
 attribute value MUST be a string, an integer in the range of a signed 64-bit

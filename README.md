@@ -48,13 +48,15 @@ behind the same contract.
 
 ## Status
 
-M1 in progress (2026-11-18). A store can be made and written: `cairn init`
+M1 done (2026-11-18). A store can be made and written: `cairn init`
 makes keys and the configuration and registers the founder; `cairn put`
 stores a blob and records who wrote it; `cairn edge` appends a signed,
 chained edge; `cairn concept` mints a named concept; `cairn log` prints the
 written forms; `cairn verify` checks every line, hash, signature and seal.
-No index, query, mount or network yet; the vector file and the archival
-shell test are the last of M1. See the roadmap for where the work stands;
+`tools/archive-check.sh` reads a store with nothing but a shell, sha256sum
+and jq, and `tools/vectors.json` is the file a second implementation holds
+itself to. No index, query, mount or network yet (M2 next). See the roadmap
+for where the work stands;
 it is the document to trust over this one when they disagree.
 
 ## Prior art

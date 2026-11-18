@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -103,5 +105,105 @@ func TestTheM1Walk(t *testing.T) {
 	}
 	if o := cli("edge", root, "is-about", blob, concept, "novalue"); o.status != 2 {
 		t.Fatalf("malformed attribute: %+v", o)
+	}
+}
+
+// SPEC §15.2, the archival guarantee, driven on a store this command made
+// (never by writing files under blobs/): tools/archive-check.sh with a
+// shell, sha256sum and jq lists every edge, verifies every line is its own
+// canonical form, follows the chain from cairn.json, verifies every blob
+// and manifest, and prints the supersedes and retracts it read. Then three
+// tamperings, each refused by name: a blob's bytes, an edge's bytes, a
+// removed line. jq is required, not optional: a box without it fails here
+// by name rather than skipping the one arm the format's promise rests on.
+func TestTheArchivalScriptOnAStoreTheCommandMade(t *testing.T) {
+	if _, err := exec.LookPath("jq"); err != nil {
+		t.Fatal("jq is required for the archival arm (tools/reaper-bootstrap.sh installs it)")
+	}
+	root := filepath.Join(t.TempDir(), "s")
+	if o := cli("init", root); o.status != 0 {
+		t.Fatalf("init: %+v", o)
+	}
+	c := strings.TrimSpace(cli("concept", root, "cal").stdout)
+	b1 := strings.TrimSpace(cliStdin("first draft", "put", root, "-").stdout)
+	b2 := strings.TrimSpace(cliStdin("second draft", "put", root, "-").stdout)
+	big := strings.Repeat("a large blob, chunked by the default bound? no: ", 10)
+	bigPath := filepath.Join(t.TempDir(), "big")
+	os.WriteFile(bigPath, []byte(big), 0o644)
+	bb := strings.TrimSpace(cli("put", root, bigPath).stdout)
+	for _, args := range [][]string{{"is-about", b1, c}, {"supersedes", b2, b1}, {"cites", bb, c, "via=test", "n=1", "zed=last"}} {
+		if o := cli(append([]string{"edge", root}, args...)...); o.status != 0 {
+			t.Fatalf("edge %v: %+v", args, o)
+		}
+	}
+	// retract the is-about edge (seq 6: 2 key-of, names, 2 wrote... count from the log)
+	o := cli("log", root)
+	lines := strings.Split(strings.TrimSpace(o.stdout), "\n")
+	var isAbout string
+	for _, l := range lines {
+		if strings.Contains(l, `"rel":"is-about"`) {
+			isAbout = "edge:" + strings.TrimPrefix(strings.SplitN(strings.TrimPrefix(l, `{"seq":`), ",", 2)[0], "")
+		}
+	}
+	if o := cli("edge", root, "retracts", isAbout, isAbout); o.status != 0 {
+		t.Fatalf("retracts: %+v", o)
+	}
+	script, _ := filepath.Abs("../../tools/archive-check.sh")
+	runScript := func(dir string) (string, error) {
+		out, err := exec.Command("sh", script, dir).CombinedOutput()
+		return string(out), err
+	}
+	out, err := runScript(root)
+	if err != nil {
+		t.Fatalf("archive-check on a good store: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "edges chained from cairn.json") || !strings.Contains(out, "supersedes: "+b2+" -> "+b1) || !strings.Contains(out, "retracts:   "+isAbout+" -> "+isAbout) || !strings.Contains(out, "blob files verified") {
+		t.Fatalf("archive-check output:\n%s", out)
+	}
+	// tampering 1: a blob's bytes
+	copyStore := func() string {
+		dst := filepath.Join(t.TempDir(), "copy")
+		if out, err := exec.Command("cp", "-R", root, dst).CombinedOutput(); err != nil {
+			t.Fatalf("cp: %v %s", err, out)
+		}
+		return dst
+	}
+	dst := copyStore()
+	hx := strings.TrimPrefix(b1, "sha256:")
+	os.WriteFile(filepath.Join(dst, "blobs", hx[:2], hx[2:]), []byte("first draft!"), 0o644)
+	if out, err := runScript(dst); err == nil || !strings.Contains(out, "bytes do not hash to the name") {
+		t.Fatalf("tampered blob: %v\n%s", err, out)
+	}
+	// tampering 2: an edge's bytes (the retracts line's object changed), the chain breaks there
+	dst = copyStore()
+	seg := filepath.Join(dst, "log", "000000.jsonl")
+	data, _ := os.ReadFile(seg)
+	altered := strings.Replace(string(data), `"rel":"names","s":"`+c+`","o":"lit:cal"`, `"rel":"names","s":"`+c+`","o":"lit:caleb"`, 1)
+	if altered == string(data) {
+		t.Fatal("the names line was not found to alter")
+	}
+	os.WriteFile(seg, []byte(altered), 0o644)
+	if out, err := runScript(dst); err == nil || !strings.Contains(out, "seq 4: prev") {
+		t.Fatalf("altered edge: %v\n%s", err, out)
+	}
+	// tampering 3: a removed line (the segment path is the new copy's)
+	dst = copyStore()
+	seg = filepath.Join(dst, "log", "000000.jsonl")
+	data, _ = os.ReadFile(seg)
+	ls := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+	os.WriteFile(seg, []byte(strings.Join(append(ls[:2], ls[3:]...), "\n")+"\n"), 0o644)
+	if out, err := runScript(dst); err == nil || !strings.Contains(out, "seq 3: the line says seq 4") {
+		t.Fatalf("removed line: %v\n%s", err, out)
+	}
+	// tampering 4: the LAST line re-spaced -- the same edge, the chain still
+	// whole (nothing follows it), so only "its own canonical form" refuses it
+	dst = copyStore()
+	seg = filepath.Join(dst, "log", "000000.jsonl")
+	data, _ = os.ReadFile(seg)
+	ls = strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+	ls[len(ls)-1] = strings.Replace(ls[len(ls)-1], `"rel":`, `"rel": `, 1)
+	os.WriteFile(seg, []byte(strings.Join(ls, "\n")+"\n"), 0o644)
+	if out, err := runScript(dst); err == nil || !strings.Contains(out, "not its own canonical form") {
+		t.Fatalf("re-spaced last line: %v\n%s", err, out)
 	}
 }

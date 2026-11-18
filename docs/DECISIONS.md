@@ -220,7 +220,11 @@ chain's input). Fractional numbers are refused rather than canonicalized
 because no two JSON tools agree on how to print a float; an instance that
 needs one stores it as a string or a literal. Refused: leaving numbers to
 the writer's tool (a signature that depends on the tool); base-10 floats
-with a fixed precision (still two tools, two answers).
+with a fixed precision (still two tools, two answers). *Refined the same
+day by the archival script's first run:* the five control characters with
+short JSON escapes are written as `\b \f \n \r \t`, not `\u00XX`, because
+that is what jq writes and the tab in the vector file was the first byte
+the two implementations disagreed on -- tier 2 doing its work.
 
 **D-26, 2026-11-18. A manifest is told from a blob by its file name, never
 by its bytes, and is not subject to the bound.** *quill found it (main/993,

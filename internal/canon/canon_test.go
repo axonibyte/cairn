@@ -153,7 +153,7 @@ func TestCanonicalBytesAreTheSpecsBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"seq":1,"t":"2026-11-18T09:00:00.000Z","w":"k:ed25519:ab","prev":"sha256:00","rel":"names","s":"c:01J","o":"lit:<cal & co> / é \u0009","a":{"b":true,"f":3,"i":2,"j":1000,"l":[1,"x"],"u":"\"q\"\\","z":null}}`
+	want := `{"seq":1,"t":"2026-11-18T09:00:00.000Z","w":"k:ed25519:ab","prev":"sha256:00","rel":"names","s":"c:01J","o":"lit:<cal & co> / é \t","a":{"b":true,"f":3,"i":2,"j":1000,"l":[1,"x"],"u":"\"q\"\\","z":null}}`
 	if string(b) != want {
 		t.Fatalf("\n got %s\nwant %s", b, want)
 	}

@@ -67,7 +67,10 @@ by the index and by walking the log by hand.
 - `go test -short` is not the suite. Two arms skip under it by design, the
   40 MiB manifest round trip and the ten-thousand-edge log, because they
   cost seconds; a clear is given on `go test ./...` without `-short`, and a
-  reading that says "green" says which it ran.
+  reading that says "green" says which it ran. One arm more runs only with
+  `CAIRN_ACCEPTANCE=1`: the ten-thousand-edge store under the archival shell
+  script, about two minutes, run at a milestone's close with its reading
+  recorded in the roadmap.
 
 ## Order of return, starting from zero
 

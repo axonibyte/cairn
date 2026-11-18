@@ -41,6 +41,13 @@ if ! command -v go >/dev/null 2>&1 || ! meets go; then
   fi
 fi
 command -v go >/dev/null 2>&1 || { log "REFUSED: no go after pkg install $versioned; the package mirror or the template is the gap"; exit 2; }
+# the archival script (SPEC §15.2) is part of the suite and needs jq
+if ! command -v jq >/dev/null 2>&1; then
+  log "installing jq"
+  pkg install -y jq >/dev/null
+fi
+command -v jq >/dev/null 2>&1 || { log "REFUSED: no jq after pkg install jq; the archival arm cannot run without it"; exit 2; }
+log "jq: $(jq --version)"
 meets go || { log "REFUSED: $(go version) on the guest is older than go.mod's $want and $versioned is not in the mirror"; exit 2; }
 log "go: $(go version)"
 log "done"
