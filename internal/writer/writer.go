@@ -182,9 +182,12 @@ func (p Public) Verify(message []byte, signature string) error {
 	if suite != p.Suite {
 		return fmt.Errorf("%w: signature is %s, key is %s", ErrBadSignature, suite, p.Suite)
 	}
+	// lowercase hex is the one encoding (D-24): an uppercase signature would
+	// verify and yet be a different written form with a different chain hash,
+	// two valid lines from one signing act, so it is refused before decoding
 	sig, err := hex.DecodeString(hx)
-	if err != nil {
-		return fmt.Errorf("%w: signature hex", ErrMalformed)
+	if err != nil || strings.ToLower(hx) != hx {
+		return fmt.Errorf("%w: signature hex must be lowercase", ErrMalformed)
 	}
 	switch suite {
 	case Ed25519:

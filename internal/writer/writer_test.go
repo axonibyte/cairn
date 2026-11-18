@@ -58,6 +58,13 @@ func TestBothSuitesSignAndVerify(t *testing.T) {
 		if err := k.Public().Verify(msg, string(flipped)); !errors.Is(err, ErrBadSignature) {
 			t.Fatalf("%s altered signature: %v", suite, err)
 		}
+		// one encoding: the same signature in uppercase hex is refused by name,
+		// since it would be a second written form of one signing act (quill,
+		// coop main/995); the lowercase form is the control above
+		upper := suite + ":" + strings.ToUpper(strings.TrimPrefix(sig, suite+":"))
+		if err := k.Public().Verify(msg, upper); !errors.Is(err, ErrMalformed) || !strings.Contains(err.Error(), "lowercase") {
+			t.Fatalf("%s uppercase signature: %v", suite, err)
+		}
 		// another key of the same suite does not verify it
 		other, _ := Generate(suite)
 		if err := other.Public().Verify(msg, sig); !errors.Is(err, ErrBadSignature) {

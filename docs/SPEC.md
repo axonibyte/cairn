@@ -212,8 +212,11 @@ the lowercase hex SHA-256 of the public key's bytes. Suites in 0.1: `ed25519`
 (classical, the default per-edge suite, 64-byte signatures) and `mldsa65`
 (ML-DSA-65, FIPS 204, post-quantum, 3,309-byte signatures, signed
 deterministically). A public key travels as `<suite>:<hex>` and a signature
-is `<suite>:<hex>` of the raw signature bytes (D-24). A writer MAY hold one
-key of each suite under one principal; the `key-of` edges say so.
+is `<suite>:<hex>` of the raw signature bytes (D-24). The hex is lowercase
+and a reader MUST refuse a key or signature whose hex is not, because a
+signature sits inside the written form the chain hashes and a second
+spelling of it would be a second valid line. A writer MAY hold one key of
+each suite under one principal; the `key-of` edges say so.
 
 8.2. A **principal** is a concept with at least one `key-of` edge from a
 writer. One principal holds one writer per machine (D-8); a principal that
