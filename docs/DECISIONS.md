@@ -237,3 +237,19 @@ relation (an edge for every large blob, and a reader of the file layout
 would need the log to read a blob); a distinct identity prefix (the large
 blob's identity must stay the manifest's hash so references do not fork).
 
+**D-27, 2026-11-18. A seal signs its own signing form, which carries the
+chain hash as `prev`; the founding hash is the configuration file's.**
+*Claude, building the log.* §8.7 said a seal's `sig` was "over the chain
+hash at that point", which would have made the seal the one edge whose
+signature is not over its signing form and so the one edge §8.3's rule
+could not verify uniformly. Since a seal's subject is the last edge and its
+`prev` is that edge's hash, the chain hash is already inside the seal's
+signing form, and signing the form as every edge is signed attests it with
+no second rule. The first edge's `prev`, "the store's founding hash", is
+now defined: the SHA-256 of `cairn.json` as first written, so the
+configuration that names the founder is itself under the chain and a store
+whose configuration was swapped reads as broken at `seq` 1. Also fixed: the
+store id of §13.4 is over the written form, the vocabulary of D-25. Refused:
+a detached seal file beside the log (a second thing to lose); the seal as
+the first line of the next segment (then a segment can end unsealed).
+

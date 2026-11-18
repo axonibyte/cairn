@@ -242,13 +242,20 @@ later session is the same writer.
 8.7. **The chain and the seal.** Every edge carries `prev`, the hash of the
 previous edge's written form (section 4.2a: `sig` included, so a forged
 signature breaks the chain too), so the log is a hash chain and any altered
-or removed edge breaks every hash after it. A **seal** is an edge of core
-type `seal` whose subject is `edge:<seq>` (the last edge sealed) and whose
-`sig` is an `mldsa65` signature by the writer's post-quantum key over the
-chain hash at that point. A store MUST emit a seal at every segment roll and
-MAY emit one on demand; a reader verifying a log MUST verify the chain and
-every seal, and MUST report the `seq` of the last seal as the bound of
-post-quantum provenance. Per-edge `ed25519` signatures identify the writer
+or removed edge breaks every hash after it; for `seq` 1, `prev` is the
+**founding hash**, the SHA-256 of the store's configuration file as written
+at `cairn init` (section 13.4, D-27). A **seal** is an edge of core type
+`seal` whose subject is `edge:<seq>`, the last edge sealed, whose `prev` is
+therefore the chain hash at that point, and whose `sig` is an `mldsa65`
+signature by the writer's post-quantum key over the seal's own signing form
+-- so a seal is verified like every other edge, and the chain hash it
+attests is inside what it signs (D-27). A store MUST emit a seal as the last
+line of a segment when the segment reaches its bound, MAY emit one on
+demand, and MUST refuse a seal signed by any suite but `mldsa65` or whose
+subject is not the last edge. A reader verifying a log MUST verify that
+every line is its own written form, the chain, every signature and every
+seal, MUST name the first bad `seq` when it refuses, and MUST report the
+`seq` of the last seal as the bound of post-quantum provenance. Per-edge `ed25519` signatures identify the writer
 cheaply; the seals make the whole history unforgeable by an adversary who
 can later break Ed25519 but not ML-DSA (D-22). An instance MAY set its
 per-edge suite to `mldsa65` and pay the log size for per-edge post-quantum
@@ -385,7 +392,12 @@ server admits callers on an allow-list of keys that is itself `member`
 edges of a reserved scope `readers`. Encryption is the first line of access
 control; the allow-list is the second.
 
-13.4. A store's id is the SHA-256 of its first edge's canonical form.
+13.4. A store's id is the SHA-256 of its first edge's written form. A
+store's configuration file, `cairn.json` at the root, names the founding
+writer's signing and sealing public keys and the instance settings (the
+blob bound, the chunk size, the segment size); its bytes as first written
+are the founding hash of section 8.7, so the configuration is itself under
+the chain.
 
 ## 14. Out of scope for 0.1, with attachment points
 
