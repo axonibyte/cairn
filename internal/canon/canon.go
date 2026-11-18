@@ -58,6 +58,10 @@ var ErrValue = errors.New("canon: value not admitted")
 // ErrDuplicateKey is returned by Parse for a key that appears twice.
 var ErrDuplicateKey = errors.New("canon: duplicate key")
 
+// ErrTrailing is returned by Parse for a line that holds more than one JSON
+// value (§4.1: one edge per line).
+var ErrTrailing = errors.New("canon: not one JSON value")
+
 // Canonical returns the canonical bytes of e, with or without its signature.
 // withSig false is the signing form (§8.3); true is the line that is written
 // and hashed (§8.7).
@@ -188,10 +192,13 @@ func marshalValue(v any, depth int) ([]byte, error) {
 		}
 		return []byte(strconv.FormatUint(x, 10)), nil
 	case json.Number:
-		if _, err := strconv.ParseInt(string(x), 10, 64); err != nil {
+		// re-formatted, never echoed: `-0` and `+0` are the integer 0 and are
+		// written as `0` (quill, coop main/998 finding 6)
+		n, err := strconv.ParseInt(string(x), 10, 64)
+		if err != nil {
 			return nil, fmt.Errorf("%w: number %s is not a 64-bit integer written as decimal digits", ErrValue, x)
 		}
-		return []byte(string(x)), nil
+		return []byte(strconv.FormatInt(n, 10)), nil
 	case float64:
 		if x != math.Trunc(x) || math.Abs(x) > math.MaxInt64 {
 			return nil, fmt.Errorf("%w: number %v is not a 64-bit integer", ErrValue, x)
@@ -248,6 +255,11 @@ func Parse(line []byte) (Edge, error) {
 	dec.UseNumber()
 	if err := dec.Decode(&raw); err != nil {
 		return Edge{}, fmt.Errorf("canon: not a JSON object: %w", err)
+	}
+	// one edge per line (§4.1): anything after the object is refused by name
+	// (quill, coop main/998 finding 7)
+	if _, err := dec.Token(); err != io.EOF {
+		return Edge{}, fmt.Errorf("%w: bytes after the edge's object on the line", ErrTrailing)
 	}
 	known := map[string]bool{}
 	for _, k := range keys {

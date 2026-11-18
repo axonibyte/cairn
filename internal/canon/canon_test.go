@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"math"
 	"strings"
 	"testing"
 )
@@ -98,15 +99,18 @@ func TestParseRefusesByName(t *testing.T) {
 		want error
 		text string
 	}{
-		"unknown key": {strings.Replace(base, `"o":`, `"x":1,"o":`, 1), ErrUnknownKey, `"x"`},
-		"missing rel": {strings.Replace(base, `"rel":"names",`, "", 1), ErrMissing, "rel"},
-		"seq zero":    {strings.Replace(base, `"seq":1`, `"seq":0`, 1), nil, "seq must be a positive integer"},
-		"nested a":    {strings.Replace(base, `"o":"lit:cal"`, `"a":{"k":{"deep":1}}`, 1), ErrValue, "nested object"},
-		"dup key":     {strings.Replace(base, `"seq":1,`, `"seq":1,"seq":2,`, 1), ErrDuplicateKey, `"seq"`},
-		"dup in a":    {strings.Replace(base, `"o":"lit:cal"`, `"a":{"k":1,"k":2}`, 1), ErrDuplicateKey, `"k"`},
-		"float in a":  {strings.Replace(base, `"o":"lit:cal"`, `"a":{"n":2.0}`, 1), ErrValue, "2.0"},
-		"exp in a":    {strings.Replace(base, `"o":"lit:cal"`, `"a":{"n":1e3}`, 1), ErrValue, "1e3"},
-		"not object":  {`[1,2]`, nil, "not a JSON object"},
+		"unknown key":      {strings.Replace(base, `"o":`, `"x":1,"o":`, 1), ErrUnknownKey, `"x"`},
+		"missing rel":      {strings.Replace(base, `"rel":"names",`, "", 1), ErrMissing, "rel"},
+		"seq zero":         {strings.Replace(base, `"seq":1`, `"seq":0`, 1), nil, "seq must be a positive integer"},
+		"nested a":         {strings.Replace(base, `"o":"lit:cal"`, `"a":{"k":{"deep":1}}`, 1), ErrValue, "nested object"},
+		"dup key":          {strings.Replace(base, `"seq":1,`, `"seq":1,"seq":2,`, 1), ErrDuplicateKey, `"seq"`},
+		"dup in a":         {strings.Replace(base, `"o":"lit:cal"`, `"a":{"k":1,"k":2}`, 1), ErrDuplicateKey, `"k"`},
+		"float in a":       {strings.Replace(base, `"o":"lit:cal"`, `"a":{"n":2.0}`, 1), ErrValue, "2.0"},
+		"exp in a":         {strings.Replace(base, `"o":"lit:cal"`, `"a":{"n":1e3}`, 1), ErrValue, "1e3"},
+		"not object":       {`[1,2]`, nil, "not a JSON object"},
+		"trailing object":  {base + `{"x":1}`, ErrTrailing, "after the edge"},
+		"trailing garbage": {base + `garbage`, ErrTrailing, "after the edge"},
+		"trailing null":    {base + `null`, ErrTrailing, "after the edge"},
 	}
 	for name, c := range cases {
 		_, err := Parse([]byte(c.line))
@@ -158,6 +162,15 @@ func TestCanonicalBytesAreTheSpecsBytes(t *testing.T) {
 		e.A = map[string]any{"n": v}
 		if _, err := Canonical(e, false); !errors.Is(err, ErrValue) {
 			t.Fatalf("%s: got %v, want refused", name, err)
+		}
+	}
+	// negative and positive zero are the integer 0 and are written as `0`
+	// whatever carried them (quill, coop main/998 finding 6)
+	for name, v := range map[string]any{"json -0": json.Number("-0"), "float -0": math.Copysign(0, -1), "json +0": json.Number("+0")} {
+		e.A = map[string]any{"n": v}
+		b, err := Canonical(e, false)
+		if err != nil || !strings.Contains(string(b), `"a":{"n":0}`) {
+			t.Fatalf("%s: %v %s", name, err, b)
 		}
 	}
 	// a string that is not UTF-8 is refused, raw bytes are not canonical
