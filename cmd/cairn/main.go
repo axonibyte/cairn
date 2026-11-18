@@ -1,26 +1,207 @@
-// cairn is the command. At M0 it prints its version and says plainly what it
-// does not yet do; the subcommands arrive with the milestones in
-// docs/ROADMAP.md and every one of them is specified in docs/SPEC.md first.
+// cairn is the command. M1's subcommands: init, put, edge, log, verify,
+// version. Each one is specified in docs/SPEC.md first and does one thing;
+// a refusal is written to stderr by name, stdout carries only answers.
+// Exit statuses: 0 answered, 1 the store refused (a verification or
+// shape failure, named), 2 usage.
 package main
 
 import (
+	"bufio"
+	"flag"
 	"fmt"
+	"io"
 	"os"
+	"strconv"
+	"strings"
 
 	"forge.axonibyte.com/axonibyte/cairn/internal/cairn"
+	"forge.axonibyte.com/axonibyte/cairn/internal/canon"
+	"forge.axonibyte.com/axonibyte/cairn/internal/log"
+	"forge.axonibyte.com/axonibyte/cairn/internal/store"
 )
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
-// run is main without the process: argv in, status out, so a test can drive
-// it without exec. Exit statuses: 0 the request was answered, 2 usage.
-func run(args []string, stdout, stderr *os.File) int {
-	if len(args) == 0 || args[0] == "version" {
+const usage = `cairn: a content-addressed store of relations (docs/SPEC.md)
+
+  cairn init <root>                              make a store: keys, cairn.json, the founder's key-of edges
+  cairn put <root> <file>|-                      store a blob (stdin with -), record wrote; prints the identity
+  cairn edge <root> <rel> <s> [<o>] [k=v ...]    append a signed edge; prints the seq
+  cairn concept <root> <name>                    mint a concept named by a literal; prints the id
+  cairn log <root> [--from N]                    print the log's written forms from seq N
+  cairn verify <root>                            verify every line, hash, signature and seal
+  cairn version
+`
+
+// run is main without the process: argv in, status out.
+func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprint(stderr, usage)
+		return 2
+	}
+	switch args[0] {
+	case "version":
 		fmt.Fprintf(stdout, "cairn %s (spec %s)\n", cairn.Version, cairn.SpecVersion)
 		return 0
+	case "init":
+		if len(args) != 2 {
+			fmt.Fprint(stderr, "cairn init <root>\n")
+			return 2
+		}
+		s, err := store.Init(args[1], 0, 0, 0)
+		if err != nil {
+			fmt.Fprintf(stderr, "cairn init: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "%s\n%s\n", s.Writer(), s.Founder.Hash)
+		return 0
+	case "put":
+		if len(args) != 3 {
+			fmt.Fprint(stderr, "cairn put <root> <file>|-\n")
+			return 2
+		}
+		s, err := store.Open(args[1])
+		if err != nil {
+			return refuse(stderr, "put", err)
+		}
+		var r io.Reader = stdin
+		if args[2] != "-" {
+			f, err := os.Open(args[2])
+			if err != nil {
+				fmt.Fprintf(stderr, "cairn put: %v\n", err)
+				return 1
+			}
+			defer f.Close()
+			r = f
+		}
+		id, seq, err := s.Put(r)
+		if err != nil {
+			return refuse(stderr, "put", err)
+		}
+		if seq == 0 {
+			fmt.Fprintf(stdout, "%s already\n", id)
+		} else {
+			fmt.Fprintf(stdout, "%s %d\n", id, seq)
+		}
+		return 0
+	case "edge":
+		if len(args) < 4 {
+			fmt.Fprint(stderr, "cairn edge <root> <rel> <s> [<o>] [k=v ...]\n")
+			return 2
+		}
+		s, err := store.Open(args[1])
+		if err != nil {
+			return refuse(stderr, "edge", err)
+		}
+		rel, subject := args[2], args[3]
+		object := ""
+		rest := args[4:]
+		if len(rest) > 0 && !strings.Contains(rest[0], "=") {
+			object, rest = rest[0], rest[1:]
+		}
+		var attrs map[string]any
+		for _, kv := range rest {
+			k, v, ok := strings.Cut(kv, "=")
+			if !ok || k == "" {
+				fmt.Fprintf(stderr, "cairn edge: attribute %q is not k=v\n", kv)
+				return 2
+			}
+			if attrs == nil {
+				attrs = map[string]any{}
+			}
+			attrs[k] = attrValue(v)
+		}
+		seq, err := s.Edge(rel, subject, object, attrs)
+		if err != nil {
+			return refuse(stderr, "edge", err)
+		}
+		fmt.Fprintf(stdout, "%d\n", seq)
+		return 0
+	case "concept":
+		if len(args) != 3 {
+			fmt.Fprint(stderr, "cairn concept <root> <name>\n")
+			return 2
+		}
+		s, err := store.Open(args[1])
+		if err != nil {
+			return refuse(stderr, "concept", err)
+		}
+		id, seq, err := s.NewConcept(args[2])
+		if err != nil {
+			return refuse(stderr, "concept", err)
+		}
+		fmt.Fprintf(stdout, "%s %d\n", id, seq)
+		return 0
+	case "log":
+		fs := flag.NewFlagSet("log", flag.ContinueOnError)
+		fs.SetOutput(stderr)
+		from := fs.Uint64("from", 1, "first seq to print")
+		if len(args) < 2 {
+			fmt.Fprint(stderr, "cairn log <root> [--from N]\n")
+			return 2
+		}
+		if err := fs.Parse(args[2:]); err != nil {
+			return 2
+		}
+		s, err := store.Open(args[1])
+		if err != nil {
+			return refuse(stderr, "log", err)
+		}
+		w := bufio.NewWriter(stdout)
+		_, err = log.Read(s.Root, s.Founder, s.Config.SegmentBytes, *from, func(v log.Verified) error {
+			b, err := canon.Canonical(v.Edge, true)
+			if err != nil {
+				return err
+			}
+			w.Write(b)
+			return w.WriteByte('\n')
+		})
+		w.Flush()
+		if err != nil {
+			return refuse(stderr, "log", err)
+		}
+		return 0
+	case "verify":
+		if len(args) != 2 {
+			fmt.Fprint(stderr, "cairn verify <root>\n")
+			return 2
+		}
+		s, err := store.Open(args[1])
+		if err != nil {
+			return refuse(stderr, "verify", err)
+		}
+		n, seal, err := s.Verify()
+		if err != nil {
+			return refuse(stderr, "verify", err)
+		}
+		fmt.Fprintf(stdout, "verified %d edges; last seal at seq %d\n", n, seal)
+		return 0
 	}
-	fmt.Fprintf(stderr, "cairn: %q is not a command yet; this build stores nothing (docs/ROADMAP.md M0). Try: cairn version\n", args[0])
+	fmt.Fprintf(stderr, "cairn: %q is not a command\n%s", args[0], usage)
 	return 2
+}
+
+// refuse writes a named refusal and returns status 1.
+func refuse(stderr io.Writer, cmd string, err error) int {
+	fmt.Fprintf(stderr, "cairn %s: REFUSED: %v\n", cmd, err)
+	return 1
+}
+
+// attrValue reads a k=v attribute's value as §4.2a admits: an integer, a
+// boolean or null when it reads as one, else a string.
+func attrValue(v string) any {
+	if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+		return n
+	}
+	switch v {
+	case "true":
+		return true
+	case "false":
+		return false
+	case "null":
+		return nil
+	}
+	return v
 }

@@ -47,7 +47,10 @@ The file backend (SPEC §3, §4, §6.2) with no index, no query, no network.
   suite and by the archival shell script.
 - The core relation types as constants with validation (§5.2) and the
   `names` edge minting a concept.
-- `cairn init`, `cairn put <file>`, `cairn edge <rel> <s> <o>`, `cairn log`.
+- `cairn init`, `cairn put <file>`, `cairn edge <rel> <s> <o>`, `cairn log`,
+  with `cairn concept` and `cairn verify` beside them -- landed 2026-11-18
+  with the keys in `.keys/` (D-28) and §5.2's shapes enforced on every edge.
+  Still owed in M1: the vector file and the archival shell script.
 
 **Tests** — hash mismatch refused by name; a non-contiguous `seq` refused;
 a forged signature refused; a broken chain and a failed seal refused naming

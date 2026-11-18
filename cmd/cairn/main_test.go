@@ -1,64 +1,97 @@
 package main
 
 import (
-	"os"
+	"bytes"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// TestVersionIsTheOnlyCommandAndSaysSo drives run both ways: the one
-// command answers with status 0 and the version line, and anything else is
-// refused with status 2 and a sentence naming what this build does not do,
-// so a reader is never told a store exists where none does.
-func TestVersionIsTheOnlyCommandAndSaysSo(t *testing.T) {
-	out := capture(t, func(stdout, stderr *os.File) int { return run([]string{"version"}, stdout, stderr) })
-	if out.status != 0 {
-		t.Fatalf("version: status %d, want 0; stderr %q", out.status, out.stderr)
-	}
-	if !strings.HasPrefix(out.stdout, "cairn 0.0.0 (spec 0.1)") {
-		t.Fatalf("version printed %q", out.stdout)
-	}
-
-	out = capture(t, func(stdout, stderr *os.File) int { return run([]string{"put", "x"}, stdout, stderr) })
-	if out.status != 2 {
-		t.Fatalf("unknown command: status %d, want 2", out.status)
-	}
-	if !strings.Contains(out.stderr, "stores nothing") {
-		t.Fatalf("the refusal must say this build stores nothing; got %q", out.stderr)
-	}
-	if out.stdout != "" {
-		t.Fatalf("a refusal writes nothing to stdout; got %q", out.stdout)
-	}
-}
-
-type captured struct {
+type out struct {
 	status         int
 	stdout, stderr string
 }
 
-// capture runs f with real files for stdout and stderr so the production
-// signature stays *os.File, and reads both back. The files are the test's
-// temp files, removed with it.
-func capture(t *testing.T, f func(stdout, stderr *os.File) int) captured {
-	t.Helper()
-	so, err := os.CreateTemp(t.TempDir(), "stdout")
-	if err != nil {
-		t.Fatal(err)
+func cli(args ...string) out {
+	var so, se bytes.Buffer
+	status := run(args, strings.NewReader(""), &so, &se)
+	return out{status, so.String(), se.String()}
+}
+
+func cliStdin(stdin string, args ...string) out {
+	var so, se bytes.Buffer
+	status := run(args, strings.NewReader(stdin), &so, &se)
+	return out{status, so.String(), se.String()}
+}
+
+// version answers; no arguments and an unknown command are usage, status 2,
+// with nothing on stdout.
+func TestVersionAndUsage(t *testing.T) {
+	o := cli("version")
+	if o.status != 0 || !strings.HasPrefix(o.stdout, "cairn 0.0.0 (spec 0.1)") {
+		t.Fatalf("version: %+v", o)
 	}
-	se, err := os.CreateTemp(t.TempDir(), "stderr")
-	if err != nil {
-		t.Fatal(err)
-	}
-	status := f(so, se)
-	read := func(fh *os.File) string {
-		if _, err := fh.Seek(0, 0); err != nil {
-			t.Fatal(err)
+	for _, args := range [][]string{{}, {"frobnicate"}, {"init"}, {"put", "x"}} {
+		o := cli(args...)
+		if o.status != 2 || o.stdout != "" || !strings.Contains(o.stderr, "cairn") {
+			t.Fatalf("%v: %+v", args, o)
 		}
-		b, err := os.ReadFile(fh.Name())
-		if err != nil {
-			t.Fatal(err)
-		}
-		return string(b)
 	}
-	return captured{status: status, stdout: read(so), stderr: read(se)}
+}
+
+// The M1 walk, through the command and nothing else: init, a concept, a
+// blob with its wrote edge, an edge with attributes, the log printed as
+// written forms, verify clean; then a refusal by name with status 1 and
+// nothing on stdout.
+func TestTheM1Walk(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "s")
+	o := cli("init", root)
+	if o.status != 0 {
+		t.Fatalf("init: %+v", o)
+	}
+	lines := strings.Split(strings.TrimSpace(o.stdout), "\n")
+	if len(lines) != 2 || !strings.HasPrefix(lines[0], "k:ed25519:") || !strings.HasPrefix(lines[1], "sha256:") {
+		t.Fatalf("init printed %q", o.stdout)
+	}
+	writer := lines[0]
+	o = cli("concept", root, "cal")
+	if o.status != 0 {
+		t.Fatalf("concept: %+v", o)
+	}
+	concept := strings.Fields(o.stdout)[0]
+	o = cliStdin("a note about cal", "put", root, "-")
+	if o.status != 0 || !strings.HasPrefix(o.stdout, "sha256:") || !strings.HasSuffix(strings.TrimSpace(o.stdout), " 4") {
+		t.Fatalf("put: %+v", o)
+	}
+	blob := strings.Fields(o.stdout)[0]
+	o = cliStdin("a note about cal", "put", root, "-")
+	if o.status != 0 || !strings.HasSuffix(strings.TrimSpace(o.stdout), " already") {
+		t.Fatalf("second put: %+v", o)
+	}
+	o = cli("edge", root, "is-about", blob, concept, "via=hand", "n=3", "ok=true")
+	if o.status != 0 || strings.TrimSpace(o.stdout) != "5" {
+		t.Fatalf("edge: %+v", o)
+	}
+	o = cli("log", root, "--from", "3")
+	if o.status != 0 {
+		t.Fatalf("log: %+v", o)
+	}
+	logLines := strings.Split(strings.TrimSpace(o.stdout), "\n")
+	if len(logLines) != 3 || !strings.HasPrefix(logLines[0], `{"seq":3,`) || !strings.Contains(logLines[2], `"a":{"n":3,"ok":true,"via":"hand"}`) || !strings.Contains(logLines[1], `"rel":"wrote","s":"`+writer+`","o":"`+blob+`"`) {
+		t.Fatalf("log printed:\n%s", o.stdout)
+	}
+	o = cli("verify", root)
+	if o.status != 0 || !strings.HasPrefix(o.stdout, "verified 5 edges; last seal at seq 0") {
+		t.Fatalf("verify: %+v", o)
+	}
+	// refusals: status 1, named, nothing on stdout
+	for _, args := range [][]string{{"edge", root, "names", "lit:x", concept}, {"edge", root, "Bad-Rel", concept, concept}, {"edge", root, "seal", "edge:1"}, {"init", root}, {"verify", filepath.Join(t.TempDir(), "nowhere")}} {
+		o := cli(args...)
+		if o.status != 1 || o.stdout != "" || !strings.Contains(o.stderr, "REFUSED") && !strings.Contains(o.stderr, "cairn") {
+			t.Fatalf("%v: %+v", args, o)
+		}
+	}
+	if o := cli("edge", root, "is-about", blob, concept, "novalue"); o.status != 2 {
+		t.Fatalf("malformed attribute: %+v", o)
+	}
 }

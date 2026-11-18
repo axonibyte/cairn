@@ -48,10 +48,14 @@ behind the same contract.
 
 ## Status
 
-Framework. The specification is a draft at 0.1, the decisions are recorded,
-the roadmap is the plan, and the binary prints its version and nothing else.
-Nothing stores anything yet. See the roadmap for where the work stands; it
-is the document to trust over this one when they disagree.
+M1 in progress (2026-11-18). A store can be made and written: `cairn init`
+makes keys and the configuration and registers the founder; `cairn put`
+stores a blob and records who wrote it; `cairn edge` appends a signed,
+chained edge; `cairn concept` mints a named concept; `cairn log` prints the
+written forms; `cairn verify` checks every line, hash, signature and seal.
+No index, query, mount or network yet; the vector file and the archival
+shell test are the last of M1. See the roadmap for where the work stands;
+it is the document to trust over this one when they disagree.
 
 ## Prior art
 
@@ -65,7 +69,7 @@ there. [XTDB](https://xtdb.com/) is the reference for bitemporal records.
 
 ## Building
 
-Go 1.26 or later. `go build -o cairn ./cmd/cairn` produces the binary;
+Go 1.27 or later (crypto/mldsa). `go build -o cairn ./cmd/cairn` produces the binary;
 `go test ./...` runs the suite. The repository is a [reaper](https://forge.axonibyte.com/axonibyte/reaper)
 tenant: `reaper up`, `reaper sync`, `reaper build`, `reaper run` exercise it
 on a disposable FreeBSD guest; the build bootstraps Go from packages.

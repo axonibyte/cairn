@@ -52,6 +52,13 @@ func TestPutGetRoundTripAndLayout(t *testing.T) {
 	if len(files) != 1 || files[0] != path {
 		t.Fatalf("files under blobs/: %v", files)
 	}
+	// and the report says so: created on the first appearance only
+	if _, created, _ := s.PutReport(bytes.NewReader(data)); created {
+		t.Fatal("a second put reported created")
+	}
+	if _, created, _ := s.PutReport(strings.NewReader("a new stone")); !created {
+		t.Fatal("a first put did not report created")
+	}
 }
 
 // §3.2: a blob whose bytes do not hash to its name is refused by name, and

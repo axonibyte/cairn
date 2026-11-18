@@ -253,3 +253,20 @@ store id of §13.4 is over the written form, the vocabulary of D-25. Refused:
 a detached seal file beside the log (a second thing to lose); the seal as
 the first line of the next segment (then a segment can end unsealed).
 
+**D-28, 2026-11-18. A machine's writer keys live in `.keys/` under the
+store root, mode 0700 with 0600 files holding seeds, never served by the
+protocol and never part of an export; a machine without them reads and
+verifies but cannot write.** *Claude, building the CLI.* The alternatives
+were a per-user configuration directory (then a store copied to another
+path loses its writer silently and two stores on one machine fight over
+one key) and a key inside the store's served tree (then replication ships
+the secret). A dot-directory beside `blobs/` and `log/` keeps the key with
+the store it writes, keeps it out of §13's served paths and §6.2's export
+by rule rather than by care, and makes "this machine holds no key" a fact
+`Open` can state. `cairn init` also writes the founder's two `key-of` edges
+as the store's first two lines, so a reader learns the founder's keys from
+the log alone (§8.4) and the configuration file is only the founding hash's
+subject. Refused: keys in `~/.config` (the store and its writer part ways
+on copy); an unregistered founder (the configuration would then be the only
+record of a key).
+

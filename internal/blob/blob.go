@@ -82,9 +82,18 @@ func (s Store) Path(identity string) (string, error) {
 // manifest's identity -- the hash of the manifest's own bytes -- is returned
 // (§3.3). Idempotent: a blob already present is not rewritten.
 func (s Store) Put(r io.Reader) (string, error) {
+	id, _, err := s.PutReport(r)
+	return id, err
+}
+
+// PutReport is Put that also reports whether anything new was stored:
+// created is false when the identity (and, for a large blob, its manifest)
+// was already here verified. A caller that records a blob's first
+// appearance (§5.2's `wrote`) needs that bit.
+func (s Store) PutReport(r io.Reader) (identity string, created bool, err error) {
 	data, err := io.ReadAll(r)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if int64(len(data)) <= s.bound() {
 		return s.putOne(data, "")
@@ -95,26 +104,26 @@ func (s Store) Put(r io.Reader) (string, error) {
 		if end > int64(len(data)) {
 			end = int64(len(data))
 		}
-		id, err := s.putOne(data[off:end], "")
+		id, _, err := s.putOne(data[off:end], "")
 		if err != nil {
-			return "", err
+			return "", false, err
 		}
 		m.Chunks = append(m.Chunks, id)
 	}
 	mb, err := json.Marshal(m)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	return s.putOne(mb, manifestSuffix)
 }
 
 const manifestSuffix = ".manifest"
 
-func (s Store) putOne(data []byte, suffix string) (string, error) {
+func (s Store) putOne(data []byte, suffix string) (string, bool, error) {
 	id := canon.Hash(data)
 	path, err := s.Path(id)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	path += suffix
 	// idempotent, and self-healing: a verified file under the name is the
@@ -122,35 +131,35 @@ func (s Store) putOne(data []byte, suffix string) (string, error) {
 	// not, and the write goes ahead -- the rename then succeeds over a file
 	// and fails, as an error, over a directory
 	if existing, err := os.ReadFile(path); err == nil && canon.Hash(existing) == id {
-		return id, nil
+		return id, false, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", err
+		return "", false, err
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	tmpName := tmp.Name()
 	if _, err := tmp.Write(data); err != nil {
 		tmp.Close()
 		os.Remove(tmpName)
-		return "", err
+		return "", false, err
 	}
 	if err := tmp.Sync(); err != nil {
 		tmp.Close()
 		os.Remove(tmpName)
-		return "", err
+		return "", false, err
 	}
 	if err := tmp.Close(); err != nil {
 		os.Remove(tmpName)
-		return "", err
+		return "", false, err
 	}
 	if err := os.Rename(tmpName, path); err != nil {
 		os.Remove(tmpName)
-		return "", err
+		return "", false, err
 	}
-	return id, nil
+	return id, true, nil
 }
 
 // Get returns the bytes of the identity, verified: a file whose bytes do not
