@@ -289,3 +289,24 @@ index with its own write API for "derived facts" (the first step toward a
 second truth); a rebuild tested by row count (a count agrees while answers
 differ).
 
+
+**D-30, 2026-11-20. The first index is in memory and is the oracle for the
+SQLite one; the contracts are Go interfaces with the query as data.**
+*Claude, opening M2 while the room's reviewer was dark.* §6.3 names SQLite
+as the reference index; it does not say which implementation comes first.
+The memory index (`internal/index`) states §5.4, §7.1 and §11.1 in the
+plainest Go that carries them, so that when the SQLite index lands the two
+are compared on one query set (TESTING.md tier 2) and a disagreement is a
+finding about one of them, not an argument about the rule. `Rebuild` leaves
+the index empty on a failed read rather than half built, because a partial
+index is the thing §10.3 forbids; `Apply` refuses a seq that is not
+`At()+1` for the same reason; `QueryAt(q, head)` is §10.2's refusal by name
+(`ErrStale`), with `Query` left for a reader who accepts the index's own
+`At()`. The contracts (`internal/contract`) are the interfaces of §6.1 with
+`Head()` added to `Store`, since §10.2 cannot be checked without it, and
+the query is a value (`Query{Terms}`) whose textual form and traversal
+(§11.2, §11.3) are later heads. Refused: starting with SQLite and testing
+it against itself (a count agrees while answers differ — D-29's own
+warning); an `Index` with any method but `Apply` and `Rebuild` that
+changes an answer; a `Rebuild` that keeps the old state when the read
+fails (killed as a mutant by the currency arm, which rebuilds twice).

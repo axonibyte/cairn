@@ -83,10 +83,18 @@ every edge and verify every blob.
 ten thousand edges; the oracle self-test (TESTING.md) in place before the
 first invariant is trusted.
 
-## M2 — The index and the query — PLANNED, bumps to v0.1.0
+## M2 — The index and the query — IN PROGRESS (opened 2026-11-20), bumps to v0.1.0
 
 SQLite index derived from the log (§10); the query of §11; the storage
 contract (§6.1) as Go interfaces with the file backend behind them.
+
+**Heads landed.** 1 (2026-11-20): `internal/contract` (the two interfaces
+of §6.1 and the query as data), the file backend satisfying `Store`, and
+`internal/index` — an in-memory `Index` with `Apply`, `Rebuild`, `At`,
+`Query` and `QueryAt` (§10.2's refusal), currency per `supersedes` (§5.4)
+and retraction (§7.1); the rebuild-compares test of §10.3 with its
+dropped-edge control; six mutants killed by name (D-30). The memory index
+is the oracle the SQLite index of a later head is compared against.
 
 **Deliverables**
 
