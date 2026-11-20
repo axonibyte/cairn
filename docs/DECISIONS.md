@@ -310,3 +310,24 @@ it against itself (a count agrees while answers differ — D-29's own
 warning); an `Index` with any method but `Apply` and `Rebuild` that
 changes an answer; a `Rebuild` that keeps the old state when the read
 fails (killed as a mutant by the currency arm, which rebuilds twice).
+
+**D-31, 2026-11-20. A failed rebuild poisons the index; a retraction is
+final; the consistency head is the caller's.** *quill's clear of M2 head 1
+(coop main/1058), three findings; Claude ruled.* (1) After a failed
+`Rebuild` the memory index stood at seq 0 and answered `[]` with no error,
+which no caller that ignored `Rebuild`'s error could tell from an empty
+store; now every call refuses with `ErrPoisoned` until a `Rebuild`
+succeeds. Refused: leaving it empty and documenting the error (the guard
+that sees it was the optional one). (2) §5.4 says a withdrawn `supersedes`
+restores currency; §7.1 said nothing about a withdrawn `retracts`, and the
+index inherited the silence: it restored nothing. The rule is now stated:
+a retraction is final, and a `retracts` of a `retracts` records the
+mistake without restoring the edge, which is re-asserted by appending it
+anew so the record shows both in order. Refused: symmetric restoration,
+which makes currency depend on the parity of a retraction chain and lets a
+later writer un-say an earlier writer's withdrawal by a single edge. One
+cell pins it beside the supersedes cell that pins the other direction.
+(3) `QueryAt(q, head)` takes the head because §10.3 forbids the index from
+seeing the log; a caller passing 0 has asked for no consistency. That is
+the contract's shape and the comment now says so; moving the check to the
+caller would lose the one place `ErrStale` is named.

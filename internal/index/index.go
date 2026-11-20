@@ -40,6 +40,10 @@ type Record struct {
 type Memory struct {
 	at    uint64
 	edges map[uint64]*Record
+	// the error of the last failed Rebuild; while set, the index answers
+	// nothing (quill, coop main/1058: an index at 0 after a failed rebuild
+	// answered [] with no error, indistinguishable from "nothing matches")
+	poisoned error
 	// by relation then object: the seqs of edges `rel` whose o is `object`
 	byRelObject map[string]map[string][]uint64
 	// seqs of `supersedes` edges by their object (§5.4)
@@ -55,12 +59,23 @@ func New() *Memory {
 
 func (m *Memory) reset() { *m = *New() }
 
+// poison is the state after a failed Rebuild: every answer refuses with
+// ErrPoisoned until a Rebuild succeeds, so a caller that ignores Rebuild's
+// error cannot read an empty index as an empty store.
+func (m *Memory) poison(err error) {
+	m.reset()
+	m.poisoned = fmt.Errorf("%w: %v", contract.ErrPoisoned, err)
+}
+
 // At is the seq of the last edge applied (§10.2).
 func (m *Memory) At() uint64 { return m.at }
 
 // Apply applies the edge at At()+1. Every fact the index will ever return
 // enters here and nowhere else (§10.3).
 func (m *Memory) Apply(v log.Verified) error {
+	if m.poisoned != nil {
+		return m.poisoned
+	}
 	e := v.Edge
 	if e.Seq != m.at+1 {
 		return fmt.Errorf("%w: got seq %d at At() %d", contract.ErrGap, e.Seq, m.at)
@@ -98,12 +113,14 @@ func (m *Memory) Apply(v log.Verified) error {
 }
 
 // Rebuild discards the index and applies every edge `read` yields from seq
-// 1 (§6.1, §10.3). On a failure the index is left empty rather than half
-// built: an index that reflects part of a log is the thing §10.3 forbids.
+// 1 (§6.1, §10.3). On a failure the index is POISONED rather than left
+// empty: an index that reflects part of a log is the thing §10.3 forbids,
+// and an empty one that answers [] without error would pass for an empty
+// store (D-31). A later successful Rebuild clears the poison.
 func (m *Memory) Rebuild(read func(fn func(log.Verified) error) error) error {
 	m.reset()
 	if err := read(m.Apply); err != nil {
-		m.reset()
+		m.poison(err)
 		return err
 	}
 	return nil
@@ -121,9 +138,14 @@ func (m *Memory) Edge(seq uint64) (Record, bool) {
 
 // Query answers §11.1: the subjects for which every term holds on an
 // un-retracted edge, less the subjects an un-retracted `supersedes` edge
-// names as object (§5.4). Results are sorted, so two indexes that agree
+// names as object (§5.4). A retraction is final (§7.1, D-31): retracting a
+// `retracts` edge records the mistake and restores nothing, so RetractedBy
+// is never cleared here. Results are sorted, so two indexes that agree
 // agree byte for byte.
 func (m *Memory) Query(q contract.Query) ([]string, error) {
+	if m.poisoned != nil {
+		return nil, m.poisoned
+	}
 	if len(q.Terms) == 0 {
 		return nil, contract.ErrEmptyQuery
 	}
@@ -164,6 +186,9 @@ func (m *Memory) Query(q contract.Query) ([]string, error) {
 
 // QueryAt is Query only when the index is at least at `head` (§10.2).
 func (m *Memory) QueryAt(q contract.Query, head uint64) ([]string, error) {
+	if m.poisoned != nil {
+		return nil, m.poisoned
+	}
 	if m.at < head {
 		return nil, fmt.Errorf("%w: At() %d, head %d", contract.ErrStale, m.at, head)
 	}

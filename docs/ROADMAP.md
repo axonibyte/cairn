@@ -95,6 +95,9 @@ of §6.1 and the query as data), the file backend satisfying `Store`, and
 and retraction (§7.1); the rebuild-compares test of §10.3 with its
 dropped-edge control; six mutants killed by name (D-30). The memory index
 is the oracle the SQLite index of a later head is compared against.
+2 (2026-11-20): quill's clear of head 1 (D-31) — a failed `Rebuild`
+poisons the index (`ErrPoisoned`), a retraction is final (§7.1 amended,
+one cell), the consistency head is the caller's by design.
 
 **Deliverables**
 

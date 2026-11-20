@@ -346,3 +346,89 @@ func TestStoreContract(t *testing.T) {
 		t.Fatalf("a refused Append moved the head to %d", cs.Head())
 	}
 }
+
+// TestFailedRebuildPoisons is D-31 (1): after a Rebuild whose read fails,
+// the index answers nothing -- Query, QueryAt and Apply all refuse with
+// ErrPoisoned -- until a Rebuild succeeds. The control is the successful
+// rebuild afterwards answering again. A failed rebuild that left the index
+// empty and answering [] would pass for an empty store.
+func TestFailedRebuildPoisons(t *testing.T) {
+	f := newFixture(t)
+	ix := New()
+	if err := ix.Rebuild(readAll(f.s)); err != nil {
+		t.Fatal(err)
+	}
+	q := contract.Query{Terms: []contract.Term{{Rel: "is-about", Object: f.alpha}}}
+	before, _ := ix.Query(q)
+	if len(before) == 0 {
+		t.Fatal("control: nothing to lose")
+	}
+	boom := errors.New("the disk went away")
+	err := ix.Rebuild(func(fn func(log.Verified) error) error {
+		return f.s.ReadLog(1, func(v log.Verified) error {
+			if v.Edge.Seq == 3 {
+				return boom
+			}
+			return fn(v)
+		})
+	})
+	if !errors.Is(err, boom) {
+		t.Fatalf("rebuild did not report the read's error: %v", err)
+	}
+	if got, err := ix.Query(q); !errors.Is(err, contract.ErrPoisoned) {
+		t.Fatalf("Query after a failed rebuild: %v %v, want ErrPoisoned", got, err)
+	}
+	if _, err := ix.QueryAt(q, 0); !errors.Is(err, contract.ErrPoisoned) {
+		t.Fatalf("QueryAt(q, 0) after a failed rebuild: %v, want ErrPoisoned", err)
+	}
+	var first log.Verified
+	_ = f.s.ReadLog(1, func(v log.Verified) error {
+		if first.Edge.Seq == 0 {
+			first = v
+		}
+		return nil
+	})
+	if err := ix.Apply(first); !errors.Is(err, contract.ErrPoisoned) {
+		t.Fatalf("Apply after a failed rebuild: %v, want ErrPoisoned", err)
+	}
+	if err := ix.Rebuild(readAll(f.s)); err != nil {
+		t.Fatal(err)
+	}
+	after, err := ix.Query(q)
+	if err != nil || !reflect.DeepEqual(after, before) {
+		t.Fatalf("after a successful rebuild: %v %v, want %v", after, err, before)
+	}
+}
+
+// TestRetractionIsFinal is D-31 (2), the cell beside
+// TestCurrencyPerSupersedesChain: retracting the `retracts` edge records the
+// mistake and restores nothing; the edge comes back only by being appended
+// anew. Both directions: the re-asserted edge is answered.
+func TestRetractionIsFinal(t *testing.T) {
+	f := newFixture(t)
+	ref := fmt.Sprintf("edge:%d", f.retractsIsAboutB3)
+	if _, err := f.s.Edge("retracts", ref, ref, nil); err != nil {
+		t.Fatal(err)
+	}
+	ix := New()
+	if err := ix.Rebuild(readAll(f.s)); err != nil {
+		t.Fatal(err)
+	}
+	q := contract.Query{Terms: []contract.Term{{Rel: "is-about", Object: f.beta}}}
+	if got, _ := ix.Query(q); len(got) != 0 {
+		t.Fatalf("retracting the retraction restored the edge: %v", got)
+	}
+	rec, _ := ix.Edge(f.isAboutB3)
+	if rec.RetractedBy != f.retractsIsAboutB3 {
+		t.Fatalf("history: retracted by %d, want %d still", rec.RetractedBy, f.retractsIsAboutB3)
+	}
+	if _, err := f.s.Edge("is-about", f.b3, f.beta, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.Rebuild(readAll(f.s)); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := ix.Query(q); !reflect.DeepEqual(got, []string{f.b3}) {
+		t.Fatalf("re-asserted edge: %v, want [%s]", got, f.b3)
+	}
+}

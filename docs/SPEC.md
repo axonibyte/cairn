@@ -190,7 +190,10 @@ treated as stale when the log has moved past it (D-11).
 7.1. An edge is withdrawn by a `retracts` edge naming it. A reader MUST treat
 a retracted edge as absent for currency and query, and MUST keep it
 readable as history. Retraction is itself an edge: who retracted what, and
-when, is in the log.
+when, is in the log. A retraction is final (D-31): a `retracts` edge MAY
+itself be retracted, which records that the withdrawal was a mistake and
+restores nothing; the withdrawn edge is re-asserted by appending it anew,
+so the record shows the withdrawal and the re-assertion in order.
 
 7.2. A blob is **unreferenced** when every edge naming it is retracted.
 

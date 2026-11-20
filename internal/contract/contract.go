@@ -49,6 +49,9 @@ type Index interface {
 	Query(q Query) ([]string, error)
 	// QueryAt answers q only if At() is not staler than head (§10.2); a
 	// staler index refuses with ErrStale rather than answering from the past.
+	// The head is the CALLER's to supply, from Store.Head(): an index never
+	// sees the log (§10.3), so it cannot know the head itself, and a caller
+	// that passes 0 has asked for no consistency and gets none (D-31).
 	QueryAt(q Query, head uint64) ([]string, error)
 }
 
@@ -79,4 +82,8 @@ var (
 	ErrEmptyQuery = errors.New("index: a query needs at least one term")
 	// ErrDangling is a retracts edge naming an edge the index has not seen.
 	ErrDangling = errors.New("index: retracts names an edge not at or before this seq")
+	// ErrPoisoned is any call on an index whose last Rebuild failed: it
+	// answers nothing until a Rebuild succeeds, so an empty index cannot pass
+	// for an empty store (D-31).
+	ErrPoisoned = errors.New("index: the last rebuild failed; rebuild before asking")
 )
