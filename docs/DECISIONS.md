@@ -331,3 +331,15 @@ cell pins it beside the supersedes cell that pins the other direction.
 seeing the log; a caller passing 0 has asked for no consistency. That is
 the contract's shape and the comment now says so; moving the check to the
 caller would lose the one place `ErrStale` is named.
+
+*Addendum, same day (quill's clear of head 2, coop main/1060).* The poison
+covered the three contract methods and not the history read `Edge`, which
+answered "not held" on a poisoned index — a false "no such edge", the
+opposite of §7.1's readable history. `Edge` now returns an error: `ErrNoEdge`
+for an absent seq, `ErrPoisoned` while poisoned. `At()` stays 0 on a
+poisoned index because that is true, and the contract now says 0 is never
+evidence of an empty store. The bound of the guarantee, as quill named it:
+the poison closes a reader that REPORTS its failure; a reader that swallows
+`Apply`'s error still fails open, and nothing inside an index can see that
+(§10.3 forbids it the log), so the caller's head in `QueryAt` is the other
+half. Both are stated; both are needed.

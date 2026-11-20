@@ -43,7 +43,9 @@ type Index interface {
 	// Apply applies the next edge. It MUST refuse an edge whose seq is not
 	// At()+1: an index with a gap would answer from a log that never was.
 	Apply(v log.Verified) error
-	// At is the log position the index reflects (§10.2).
+	// At is the log position the index reflects (§10.2). 0 is an index that
+	// reflects nothing, fresh or poisoned alike; it is not evidence of an
+	// empty store, which only Query, Apply or a history read can give (D-31).
 	At() uint64
 	// Query answers q from the edges at or before At() (§11.1).
 	Query(q Query) ([]string, error)
@@ -86,4 +88,6 @@ var (
 	// answers nothing until a Rebuild succeeds, so an empty index cannot pass
 	// for an empty store (D-31).
 	ErrPoisoned = errors.New("index: the last rebuild failed; rebuild before asking")
+	// ErrNoEdge is a history read of a seq the index does not hold.
+	ErrNoEdge = errors.New("index: no edge at that seq")
 )

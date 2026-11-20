@@ -201,9 +201,9 @@ func TestRetractedAbsentPresentInHistory(t *testing.T) {
 	if len(got) != 0 {
 		t.Fatalf("is-about beta after retraction: %v, want nothing", got)
 	}
-	rec, ok := ix.Edge(f.isAboutB3)
-	if !ok || rec.Edge.S != f.b3 || rec.Edge.O != f.beta {
-		t.Fatalf("history lost the retracted edge: %+v %v", rec, ok)
+	rec, err := ix.Edge(f.isAboutB3)
+	if err != nil || rec.Edge.S != f.b3 || rec.Edge.O != f.beta {
+		t.Fatalf("history lost the retracted edge: %+v %v", rec, err)
 	}
 	if rec.RetractedBy != f.retractsIsAboutB3 {
 		t.Fatalf("retracted by %d, want %d", rec.RetractedBy, f.retractsIsAboutB3)
@@ -282,6 +282,9 @@ func TestQueryRefusals(t *testing.T) {
 	e := canon.Edge{Seq: 1, Rel: "retracts", S: "edge:7", O: "edge:7"}
 	if err := ix.Apply(log.Verified{Edge: e}); !errors.Is(err, contract.ErrDangling) {
 		t.Fatalf("dangling retracts: %v", err)
+	}
+	if _, err := ix.Edge(7); !errors.Is(err, contract.ErrNoEdge) {
+		t.Fatalf("history read of an absent seq: %v, want ErrNoEdge", err)
 	}
 }
 
@@ -391,6 +394,11 @@ func TestFailedRebuildPoisons(t *testing.T) {
 	if err := ix.Apply(first); !errors.Is(err, contract.ErrPoisoned) {
 		t.Fatalf("Apply after a failed rebuild: %v, want ErrPoisoned", err)
 	}
+	// the history read refuses too: a poisoned index must not say "no such
+	// edge" about an edge the log holds (§7.1 keeps history readable)
+	if _, err := ix.Edge(1); !errors.Is(err, contract.ErrPoisoned) {
+		t.Fatalf("Edge after a failed rebuild: %v, want ErrPoisoned", err)
+	}
 	if err := ix.Rebuild(readAll(f.s)); err != nil {
 		t.Fatal(err)
 	}
@@ -418,7 +426,10 @@ func TestRetractionIsFinal(t *testing.T) {
 	if got, _ := ix.Query(q); len(got) != 0 {
 		t.Fatalf("retracting the retraction restored the edge: %v", got)
 	}
-	rec, _ := ix.Edge(f.isAboutB3)
+	rec, err := ix.Edge(f.isAboutB3)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if rec.RetractedBy != f.retractsIsAboutB3 {
 		t.Fatalf("history: retracted by %d, want %d still", rec.RetractedBy, f.retractsIsAboutB3)
 	}

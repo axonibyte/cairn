@@ -67,7 +67,10 @@ func (m *Memory) poison(err error) {
 	m.poisoned = fmt.Errorf("%w: %v", contract.ErrPoisoned, err)
 }
 
-// At is the seq of the last edge applied (§10.2).
+// At is the seq of the last edge applied (§10.2). A poisoned index is at 0,
+// which is true -- it reflects no position -- and is why At() alone never
+// says "fresh": every reader of a position asks Query, Apply or Edge, which
+// refuse (D-31).
 func (m *Memory) At() uint64 { return m.at }
 
 // Apply applies the edge at At()+1. Every fact the index will ever return
@@ -126,14 +129,20 @@ func (m *Memory) Rebuild(read func(fn func(log.Verified) error) error) error {
 	return nil
 }
 
-// Edge is the history read: the record at seq, and whether the index holds
-// it. A retracted edge is returned with RetractedBy set (§7.1).
-func (m *Memory) Edge(seq uint64) (Record, bool) {
+// Edge is the history read: the record at seq. A retracted edge is returned
+// with RetractedBy set (§7.1). An absent seq is ErrNoEdge; a poisoned index
+// refuses with ErrPoisoned rather than telling a reader the edge was never
+// there (quill, coop main/1060: 7.1 requires history to stay readable, and
+// a false "no such edge" is the opposite of readable).
+func (m *Memory) Edge(seq uint64) (Record, error) {
+	if m.poisoned != nil {
+		return Record{}, m.poisoned
+	}
 	rec, ok := m.edges[seq]
 	if !ok {
-		return Record{}, false
+		return Record{}, fmt.Errorf("%w: seq %d at At() %d", contract.ErrNoEdge, seq, m.at)
 	}
-	return *rec, true
+	return *rec, nil
 }
 
 // Query answers §11.1: the subjects for which every term holds on an
