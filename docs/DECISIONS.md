@@ -460,3 +460,13 @@ reason now covers the file case too: it serialises readers, acceptable for
 0.1's one-process CLI and the mount's to revisit. quill's second reading of
 the acceptance figure, 0.36 s on their box, strengthens the 1.2 s the
 roadmap carries, which is the slower and the right one for a bound.
+
+*Second addendum, same afternoon (quill at coop main/1076, clearing head
+5 and M2's first five heads).* The rule M2 leaves for M3, in quill's words:
+a derived store's EVERY reader has to refuse while the derivation is in
+doubt, and the list of readers grows faster than the guards do. Heads 2
+through 5 each closed a fail-open the head before had left -- the empty
+rebuild, the history read, the resume -- in a different reader each time.
+The mount (M3) adds readers (a listing, a file read, a stat); each is bound
+by this rule before it ships, and the arm for it is the poisoned index
+asked through that reader.
