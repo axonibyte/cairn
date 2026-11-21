@@ -90,7 +90,7 @@ func (m *Memory) Apply(v log.Verified) error {
 		m.reset()
 	}
 	if e.Rel == "retracts" {
-		target, err := edgeRef(e.O)
+		target, err := EdgeRef(e.O)
 		if err != nil {
 			return err
 		}
@@ -314,8 +314,9 @@ func (m *Memory) superseded(s string) bool {
 	return false
 }
 
-// edgeRef reads `edge:<seq>` (§4.2).
-func edgeRef(ref string) (uint64, error) {
+// EdgeRef reads `edge:<seq>` (§4.2); shared with the SQLite index so the two
+// refuse the same strings.
+func EdgeRef(ref string) (uint64, error) {
 	var seq uint64
 	if n, err := fmt.Sscanf(ref, "edge:%d", &seq); err != nil || n != 1 || seq == 0 || fmt.Sprintf("edge:%d", seq) != ref {
 		return 0, fmt.Errorf("index: %q is not an edge reference", ref)

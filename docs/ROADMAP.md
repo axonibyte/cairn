@@ -115,6 +115,13 @@ empty answer. Five mutants killed by name.
 reader (`canon.Literal` / `canon.IsLiteral`) with a tier-3 arm refusing the
 string elsewhere; `Check` admits `=` in an object, which Parse reads at its
 first occurrence only.
+5 (2026-11-21): `internal/sqlindex`, the SQLite index of §6.3 on the same
+contract, pure Go (`modernc.org/sqlite`, the project's first dependency,
+D-34); the tier-2 comparison holds it and the memory index to one answer
+set, errors and history included, with a one-edge control; a rebuild in
+one transaction. ACCEPTANCE READING: a 10,000-edge rebuild in 1.2 s on
+harness-01 (the first form committed per edge and took 30 s). Six mutants
+killed by name.
 
 **Deliverables**
 
@@ -134,7 +141,9 @@ blob refused by name; compaction preserves every `seq` and `sig`; traversal
 depth bound honored (mutant: unbounded, must fail on a cycle fixture).
 
 **Acceptance** — P-3 read; a 10,000-edge rebuild under 10 s on the
-reference machine, recorded.
+reference machine, recorded. Read 2026-11-21: 1.2 s on harness-01
+(`TestTenThousandEdgeRebuild`, a synthetic verified stream; the store's
+signing is not what is measured).
 
 ## M3 — The mount — PLANNED
 

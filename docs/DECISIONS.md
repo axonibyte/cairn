@@ -416,3 +416,31 @@ occurrence only, so `name=b=c` round-trips, and `Check` now agrees with the
 store, which admits such a name; only `/` is the separator. quill's own
 miss on the head-1 clear is theirs in their words at main/1067 and mine in
 D-33: a probe that builds its own premise cannot test it.
+
+**D-34, 2026-11-21. The SQLite index is pure Go, the project's first
+dependency; it is disposable and built in one transaction; the memory index
+is its oracle.** *Claude, M2 head 5.* §6.3 names SQLite as the reference
+index and says nothing about how it is linked. Decided: `modernc.org/sqlite`
+v1.62.0, a pure-Go translation, pinned in go.mod -- the first dependency
+cairn takes outside the standard library, because the reference index must
+build wherever the store does (the FreeBSD jails and the reaper guest have
+no C toolchain by default) and a cgo driver would make the archival
+reader's second implementation depend on a compiler. The index file
+(`index.sqlite` beside the store, or in memory) runs with the journal in
+memory and sync off: durability is the log's (§10.3), a crash mid-write
+costs a rebuild and nothing else, and a rebuild is the test of the index.
+`Rebuild` applies the whole stream in ONE transaction: the first form
+committed per edge and a 10,000-edge rebuild took 30 s against the
+roadmap's 10; in one transaction it takes 1.2 s on harness-01, which is the
+acceptance reading. The schema (§10.1) is one table of edges with their
+retracting seq, indexed by (rel, o) and (rel, s); it is the implementation's
+and not the specification's. The memory index (D-30) is the oracle: the
+tier-2 arm rebuilds both from one log and compares every answer, every
+error identity and every history row, with a one-edge control -- and it
+had to be fed a world rich enough to see each rule: a mutant that walked
+retracted edges survived until the query set held a depth-one walk past a
+withdrawn edge (depth 64 reached the same node through the cycle), and a
+mutant that re-pointed a second retraction survived until the world held a
+second retraction of the same edge. Refused: cgo (a compiler in the reader's
+way); per-edge commits (durability nobody asked of a derived thing); a
+schema in the specification (§10.1 says it is an implementation matter).
