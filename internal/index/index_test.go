@@ -574,3 +574,45 @@ func TestTraversalRefusals(t *testing.T) {
 		t.Fatalf("control supersedes^ of z: %v %v", got, err)
 	}
 }
+
+// TestHeadGuardsEach drives the two guards of headOf separately, because the
+// commit that introduced them claimed each alone was killed by the cycle arm
+// and that was false: with either guard removed the cycle is still refused by
+// the other, so the mutants survived. Here (1) a two-cycle is refused within
+// three hops, which only the seen set can do (the bound alone takes 65), and
+// (2) an acyclic chain longer than MaxDepth is refused by the bound, which
+// the seen set alone would walk to its head.
+func TestHeadGuardsEach(t *testing.T) {
+	ix := New()
+	// a hand-applied stream: Apply takes any edge whose seq is next; no store
+	// is needed to shape the chain, and the arm says so rather than hide it
+	seq := uint64(0)
+	apply := func(rel, s, o string) {
+		t.Helper()
+		seq++
+		if err := ix.Apply(log.Verified{Edge: canon.Edge{Seq: seq, Rel: rel, S: s, O: o}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// (1) the two-cycle: a supersedes b, b supersedes a
+	apply("supersedes", "sha256:a", "sha256:b")
+	apply("supersedes", "sha256:b", "sha256:a")
+	_, err := ix.headOf("sha256:a")
+	if !errors.Is(err, contract.ErrNoHead) {
+		t.Fatalf("cycle: %v", err)
+	}
+	if !strings.Contains(err.Error(), "after 2 hops") {
+		t.Fatalf("the seen set should name the cycle at its first repeat (2 hops); got %v", err)
+	}
+	// (2) an acyclic chain of MaxDepth+2 nodes: n0 <- n1 <- ... each superseding the last
+	for i := 1; i <= contract.MaxDepth+1; i++ {
+		apply("supersedes", fmt.Sprintf("sha256:n%d", i), fmt.Sprintf("sha256:n%d", i-1))
+	}
+	if _, err := ix.headOf("sha256:n0"); !errors.Is(err, contract.ErrNoHead) {
+		t.Fatalf("a chain longer than MaxDepth must be refused by the bound: %v", err)
+	}
+	// control: a chain of exactly MaxDepth hops resolves to its head
+	if head, err := ix.headOf("sha256:n1"); err != nil || head != fmt.Sprintf("sha256:n%d", contract.MaxDepth+1) {
+		t.Fatalf("control: a chain within the bound: %v %v", head, err)
+	}
+}

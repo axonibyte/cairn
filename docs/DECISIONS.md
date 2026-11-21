@@ -366,3 +366,15 @@ node, `^` follows the lowest seq, the earliest claim; the mount (M3) may
 need both heads and this is the place to revisit. Refused: clamping a depth
 over the bound (a different question answered quietly); the bare-name
 shorthand in the printer (two texts for one query).
+
+*Correction, same hour.* 85c6a13's message says the seen set and the hop
+bound were each killed alone by the cycle arm. They were not: with either
+guard removed the other still refused the cycle, so both mutants SURVIVED,
+and the message recorded a kill that did not happen. Two guards that cover
+one case are redundant by design and a test over that case cannot see
+either; each needs its own arm. `TestHeadGuardsEach` now drives them apart:
+a two-cycle must be named within two hops (only the seen set can), and an
+acyclic chain longer than `MaxDepth` must be refused by the bound (the seen
+set alone would walk it). Both mutants are killed by that arm now, by name.
+The lesson is CONTRIBUTING's own: read the mutant's result line as its own
+step; "ok" after a mutant is the mutant surviving, not the arm passing.
