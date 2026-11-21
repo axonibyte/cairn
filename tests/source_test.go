@@ -9,17 +9,26 @@ import (
 
 // TestLiteralFormHasOneReader is a tier-3 arm (TESTING.md: source as data):
 // the literal prefix of SPEC §4.2 appears as a string in internal/canon and
-// nowhere else in the engine's code, because three sites in two packages
+// nowhere else in the repository's Go code, cmd/ and tools/ included, because three sites in two packages
 // spelling it separately is the shape that let the index's name term look
 // up the bare word while the store wrote the prefixed one (D-33). Test files
 // may spell it, since a test that pins the form is the point.
 func TestLiteralFormHasOneReader(t *testing.T) {
 	var offenders []string
-	err := filepath.WalkDir("../internal", func(path string, d os.DirEntry, err error) error {
+	// rooted at the repository, not internal/: cmd/cairn composes edges from
+	// argv and is where a convenience that builds a literal would be written
+	// (quill, coop main/1069); the walk skips .git and test files
+	err := filepath.WalkDir("..", func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+		if d.IsDir() {
+			if d.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
 		if strings.Contains(filepath.ToSlash(path), "/internal/canon/") {
