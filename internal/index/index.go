@@ -46,6 +46,9 @@ type Memory struct {
 	poisoned error
 	// by relation then object: the seqs of edges `rel` whose o is `object`
 	byRelObject map[string]map[string][]uint64
+	// by relation then subject: the seqs of edges `rel` whose s is `subject`
+	// (the forward hop of a traversal, §11.2)
+	byRelSubject map[string]map[string][]uint64
 	// seqs of `supersedes` edges by their object (§5.4)
 	supersededBy map[string][]uint64
 }
@@ -54,7 +57,7 @@ var _ contract.Index = (*Memory)(nil)
 
 // New is an empty index at seq 0.
 func New() *Memory {
-	return &Memory{edges: map[uint64]*Record{}, byRelObject: map[string]map[string][]uint64{}, supersededBy: map[string][]uint64{}}
+	return &Memory{edges: map[uint64]*Record{}, byRelObject: map[string]map[string][]uint64{}, byRelSubject: map[string]map[string][]uint64{}, supersededBy: map[string][]uint64{}}
 }
 
 func (m *Memory) reset() { *m = *New() }
@@ -107,6 +110,12 @@ func (m *Memory) Apply(v log.Verified) error {
 			m.byRelObject[e.Rel] = byObject
 		}
 		byObject[e.O] = append(byObject[e.O], e.Seq)
+		bySubject := m.byRelSubject[e.Rel]
+		if bySubject == nil {
+			bySubject = map[string][]uint64{}
+			m.byRelSubject[e.Rel] = bySubject
+		}
+		bySubject[e.S] = append(bySubject[e.S], e.Seq)
 	}
 	if e.Rel == "supersedes" {
 		m.supersededBy[e.O] = append(m.supersededBy[e.O], e.Seq)
@@ -147,7 +156,7 @@ func (m *Memory) Edge(seq uint64) (Record, error) {
 
 // Query answers §11.1: the subjects for which every term holds on an
 // un-retracted edge, less the subjects an un-retracted `supersedes` edge
-// names as object (§5.4). A retraction is final (§7.1, D-31): retracting a
+// names as object (§5.4), then the traversals of §11.2 in order. A retraction is final (§7.1, D-31): retracting a
 // `retracts` edge records the mistake and restores nothing, so RetractedBy
 // is never cleared here. Results are sorted, so two indexes that agree
 // agree byte for byte.
@@ -182,15 +191,101 @@ func (m *Memory) Query(q contract.Query) ([]string, error) {
 			}
 		}
 	}
-	out := make([]string, 0, len(result))
+	current := map[string]bool{}
 	for s := range result {
-		if m.superseded(s) {
-			continue
+		if !m.superseded(s) {
+			current[s] = true
 		}
+	}
+	for _, t := range q.Traversal {
+		var err error
+		current, err = m.traverse(current, t)
+		if err != nil {
+			return nil, err
+		}
+	}
+	out := make([]string, 0, len(current))
+	for s := range current {
 		out = append(out, s)
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// traverse is §11.2 over a set. supersedes^ maps each member to the current
+// head of its chain, following un-retracted supersedes edges from object to
+// subject until a member no such edge names; a chain with no head (a cycle)
+// is refused with ErrNoHead rather than looped. rel*N maps the set to every
+// node reached in 1..N hops along un-retracted rel edges, subject to object;
+// a visited set makes a cycle terminate at the bound with no node twice, and
+// the depth is refused outside 1..MaxDepth rather than clamped.
+func (m *Memory) traverse(set map[string]bool, t contract.Traversal) (map[string]bool, error) {
+	if t.Head {
+		if t.Rel != "supersedes" {
+			return nil, fmt.Errorf("%w: %s^", contract.ErrTraversalRel, t.Rel)
+		}
+		out := map[string]bool{}
+		for s := range set {
+			head, err := m.headOf(s)
+			if err != nil {
+				return nil, err
+			}
+			out[head] = true
+		}
+		return out, nil
+	}
+	if t.Rel != "supersedes" && t.Rel != "cites" {
+		return nil, fmt.Errorf("%w: %s", contract.ErrTraversalRel, t.Rel)
+	}
+	if t.Depth < 1 || t.Depth > contract.MaxDepth {
+		return nil, fmt.Errorf("%w: %s*%d", contract.ErrDepth, t.Rel, t.Depth)
+	}
+	visited := map[string]bool{}
+	frontier := set
+	for hop := 0; hop < t.Depth && len(frontier) > 0; hop++ {
+		next := map[string]bool{}
+		for s := range frontier {
+			for _, seq := range m.byRelSubject[t.Rel][s] {
+				rec := m.edges[seq]
+				if rec.RetractedBy != 0 || visited[rec.Edge.O] {
+					continue
+				}
+				visited[rec.Edge.O] = true
+				next[rec.Edge.O] = true
+			}
+		}
+		frontier = next
+	}
+	return visited, nil
+}
+
+// headOf is the current head of s's supersedes chain (§5.4): s itself when
+// nothing un-retracted supersedes it, else the head of whatever does. Where
+// two un-retracted edges supersede one node, the lowest seq is followed --
+// the earliest claim -- a choice D-32 records for the mount to revisit.
+func (m *Memory) headOf(s string) (string, error) {
+	seen := map[string]bool{}
+	// bounded twice: the seen set names a cycle at its first repeat, and the
+	// hop bound refuses a chain longer than MaxDepth, so a defect in either
+	// guard is still a refusal by name and never a loop (§11.2)
+	for hops := 0; ; hops++ {
+		if seen[s] || hops > contract.MaxDepth {
+			return "", fmt.Errorf("%w: at %s after %d hops", contract.ErrNoHead, s, hops)
+		}
+		seen[s] = true
+		next := ""
+		for _, seq := range m.supersededBy[s] {
+			rec := m.edges[seq]
+			if rec.RetractedBy == 0 {
+				next = rec.Edge.S
+				break
+			}
+		}
+		if next == "" {
+			return s, nil
+		}
+		s = next
+	}
 }
 
 // QueryAt is Query only when the index is at least at `head` (§10.2).

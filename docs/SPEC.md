@@ -357,8 +357,12 @@ un-retracted edge.
 `cites*N`. Depth is bounded; unbounded traversal is not in 0.1.
 
 11.3. Textual form, used by the mount and the protocol: terms separated by
-`/`, each `rel=object`, traversal suffixed; `name=` terms may be written as
-the bare name when unambiguous. The same grammar is the mount's path grammar
+`/`, each `rel=object`, each traversal its own component after the terms
+(`supersedes^`, `supersedes*N`, `cites*N`); `name=` terms may be written as
+the bare name when the word can be nothing else (no `=`, `*` or `^` in it).
+The long form is canonical: a conformant printer writes `name=<literal>`,
+so one text names one query. A text that is not of this grammar MUST be
+refused, not guessed (D-32). The same grammar is the mount's path grammar
 (section 12).
 
 11.4. Nothing in the query is probabilistic. A query is a fact about the

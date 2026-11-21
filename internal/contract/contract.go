@@ -64,14 +64,34 @@ type Term struct {
 	Object string
 }
 
+// Traversal is §11.2: after the terms select a set of subjects, a traversal
+// of bounded depth maps the set along one relation. `supersedes^` (Head)
+// replaces each subject by the current head of its supersedes chain, the
+// one no un-retracted supersedes edge names as object; `rel*N` replaces the
+// set by everything reachable from it in 1..N hops along un-retracted `rel`
+// edges, subject to object. Depth is bounded by MaxDepth; unbounded
+// traversal is not in 0.1.
+type Traversal struct {
+	Rel   string
+	Depth int  // hops, 1..MaxDepth; ignored when Head
+	Head  bool // supersedes^: follow the chain forward to its current head
+}
+
 // Query is a conjunction of terms (§11.1): the subjects for which every term
-// holds on a current, un-retracted edge.
+// holds on a current, un-retracted edge, then the traversals of §11.2 in
+// order.
 type Query struct {
-	Terms []Term
+	Terms     []Term
+	Traversal []Traversal
 }
 
 // NameRel is the relation name a name term is written with.
 const NameRel = "name"
+
+// MaxDepth bounds a traversal (§11.2): a depth above it is refused, not
+// clamped, because a clamped answer is a different question answered
+// quietly.
+const MaxDepth = 64
 
 var (
 	// ErrStale is QueryAt on an index behind the head it was asked to be
@@ -90,4 +110,11 @@ var (
 	ErrPoisoned = errors.New("index: the last rebuild failed; rebuild before asking")
 	// ErrNoEdge is a history read of a seq the index does not hold.
 	ErrNoEdge = errors.New("index: no edge at that seq")
+	// ErrDepth is a traversal depth outside 1..MaxDepth (§11.2).
+	ErrDepth = errors.New("query: traversal depth is not within 1..64; unbounded traversal is not in 0.1")
+	// ErrNoHead is supersedes^ over a chain with no current head: every member
+	// is superseded, which only a cycle of supersedes edges can produce.
+	ErrNoHead = errors.New("query: the supersedes chain has no current head (a cycle)")
+	// ErrTraversalRel is a traversal over a relation that is not one of §11.2's.
+	ErrTraversalRel = errors.New("query: a traversal walks supersedes or cites, nothing else in 0.1")
 )

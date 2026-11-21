@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -14,6 +15,7 @@ import (
 	"forge.axonibyte.com/axonibyte/cairn/internal/canon"
 	"forge.axonibyte.com/axonibyte/cairn/internal/contract"
 	"forge.axonibyte.com/axonibyte/cairn/internal/log"
+	"forge.axonibyte.com/axonibyte/cairn/internal/query"
 	"forge.axonibyte.com/axonibyte/cairn/internal/store"
 )
 
@@ -441,5 +443,134 @@ func TestRetractionIsFinal(t *testing.T) {
 	}
 	if got, _ := ix.Query(q); !reflect.DeepEqual(got, []string{f.b3}) {
 		t.Fatalf("re-asserted edge: %v, want [%s]", got, f.b3)
+	}
+}
+
+// traversalFixture extends the fixture with a third draft and a cites chain:
+// b3 supersedes b2 (so b1 <- b2 <- b3, head b3) and b3 cites b2 (so the
+// cites chain is b3 -> b2 -> b1).
+func traversalFixture(t *testing.T) *fixture {
+	t.Helper()
+	f := newFixture(t)
+	for _, e := range [][3]string{{"supersedes", f.b3, f.b2}, {"cites", f.b3, f.b2}, {"is-about", f.b3, f.alpha}} {
+		if _, err := f.s.Edge(e[0], e[1], e[2], nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return f
+}
+
+func parsed(t *testing.T, text string) contract.Query {
+	t.Helper()
+	q, err := query.Parse(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return q
+}
+
+// TestTraversal is §11.2 on the memory index: cites*N walks the chain to the
+// bound and no further; supersedes^ finds the head through two hops; the
+// two compose in order; and the terms' currency filter still applies before
+// the walk (b2 and b1 are not current, so is-about alpha alone is b3).
+func TestTraversal(t *testing.T) {
+	f := traversalFixture(t)
+	ix := New()
+	if err := ix.Rebuild(readAll(f.s)); err != nil {
+		t.Fatal(err)
+	}
+	sorted := func(xs ...string) []string { out := append([]string(nil), xs...); sort.Strings(out); return out }
+	cases := map[string][]string{
+		"is-about=" + f.alpha:                           {f.b3},
+		"is-about=" + f.alpha + "/cites*1":              {f.b2},
+		"is-about=" + f.alpha + "/cites*2":              sorted(f.b2, f.b1),
+		"is-about=" + f.alpha + "/cites*64":             sorted(f.b2, f.b1),
+		"is-about=" + f.alpha + "/cites*1/supersedes^":  {f.b3},
+		"is-about=" + f.alpha + "/cites*2/supersedes^":  {f.b3},
+		"is-about=" + f.alpha + "/cites*1/supersedes*1": {f.b1},
+		"is-about=" + f.alpha + "/supersedes*2":         sorted(f.b2, f.b1),
+		"is-about=" + f.alpha + "/supersedes^":          {f.b3},
+		"is-about=" + f.beta:                            {},
+	}
+	for text, want := range cases {
+		got, err := ix.Query(parsed(t, text))
+		if err != nil {
+			t.Fatalf("%s: %v", text, err)
+		}
+		if len(got) == 0 && len(want) == 0 {
+			continue
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("%s: %v, want %v", text, got, want)
+		}
+	}
+	// a retracted edge is not walked: retract b3 cites b2 and cites*2 is empty
+	var citesB3 uint64
+	_ = f.s.ReadLog(1, func(v log.Verified) error {
+		if v.Edge.Rel == "cites" && v.Edge.S == f.b3 {
+			citesB3 = v.Edge.Seq
+		}
+		return nil
+	})
+	ref := fmt.Sprintf("edge:%d", citesB3)
+	if _, err := f.s.Edge("retracts", ref, ref, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.Rebuild(readAll(f.s)); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := ix.Query(parsed(t, "is-about="+f.alpha+"/cites*2")); len(got) != 0 {
+		t.Fatalf("a retracted cites edge was walked: %v", got)
+	}
+}
+
+// TestTraversalRefusals: a depth outside 1..MaxDepth is refused by name
+// through the index as through the parser; a supersedes cycle has no head
+// and supersedes^ refuses rather than loops; a cites cycle terminates at the
+// bound with each node once.
+func TestTraversalRefusals(t *testing.T) {
+	f := traversalFixture(t)
+	// a cycle: x supersedes y, y supersedes x; z cites x so the cycle is reachable
+	x, _, _ := f.s.Put(strings.NewReader("x"))
+	y, _, _ := f.s.Put(strings.NewReader("y"))
+	z, _, _ := f.s.Put(strings.NewReader("z"))
+	for _, e := range [][3]string{{"supersedes", x, y}, {"supersedes", y, x}, {"cites", z, x}, {"cites", x, y}, {"cites", y, x}, {"is-about", z, f.beta}} {
+		if _, err := f.s.Edge(e[0], e[1], e[2], nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ix := New()
+	if err := ix.Rebuild(readAll(f.s)); err != nil {
+		t.Fatal(err)
+	}
+	q := contract.Query{Terms: []contract.Term{{Rel: "is-about", Object: f.beta}}, Traversal: []contract.Traversal{{Rel: "cites", Depth: 0}}}
+	if _, err := ix.Query(q); !errors.Is(err, contract.ErrDepth) {
+		t.Fatalf("depth 0 through the index: %v", err)
+	}
+	q.Traversal[0].Depth = contract.MaxDepth + 1
+	if _, err := ix.Query(q); !errors.Is(err, contract.ErrDepth) {
+		t.Fatalf("depth %d through the index: %v", contract.MaxDepth+1, err)
+	}
+	q.Traversal[0] = contract.Traversal{Rel: "is-about", Depth: 1}
+	if _, err := ix.Query(q); !errors.Is(err, contract.ErrTraversalRel) {
+		t.Fatalf("walking is-about: %v", err)
+	}
+	// the cites cycle terminates at the bound, each node once
+	got, err := ix.Query(parsed(t, "is-about="+f.beta+"/cites*64"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{x, y}
+	sort.Strings(want)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("cites*64 over a cycle: %v, want %v", got, want)
+	}
+	// the supersedes cycle has no head
+	if _, err := ix.Query(parsed(t, "is-about="+f.beta+"/cites*1/supersedes^")); !errors.Is(err, contract.ErrNoHead) {
+		t.Fatalf("supersedes^ over a cycle: %v, want ErrNoHead", err)
+	}
+	// control: z itself has a head (z), so the refusal is the cycle's
+	if got, err := ix.Query(parsed(t, "is-about="+f.beta+"/supersedes^")); err != nil || !reflect.DeepEqual(got, []string{z}) {
+		t.Fatalf("control supersedes^ of z: %v %v", got, err)
 	}
 }

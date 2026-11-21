@@ -343,3 +343,26 @@ the poison closes a reader that REPORTS its failure; a reader that swallows
 `Apply`'s error still fails open, and nothing inside an index can see that
 (§10.3 forbids it the log), so the caller's head in `QueryAt` is the other
 half. Both are stated; both are needed.
+
+**D-32, 2026-11-21. The textual query refuses rather than guesses, prints
+long, and a traversal is bounded twice.** *Claude, M2 head 3.* §11.3 said
+"traversal suffixed" and "bare name when unambiguous" and left the rest to
+the implementation; the mount will hand these strings to a reader as
+directory names, so a guessed meaning is a wrong listing that looks right.
+Decided: a traversal is its own path component after the terms; a bare word
+is a name term only when it holds no `=`, `*` or `^`; the printer writes the
+long form so one text means one query; an empty component, a term after a
+traversal, a traversal before any term, a depth that is not a positive
+integer within `MaxDepth` (64), and a traversal over any relation but
+`supersedes` and `cites` are each refused by name (`ErrSyntax`, `ErrDepth`,
+`ErrTraversalRel`). In the index, `rel*N` walks un-retracted edges subject
+to object with a visited set, so a cycle terminates at the bound with each
+node once; `supersedes^` follows the chain object to subject and refuses a
+cycle as `ErrNoHead` by two guards, a seen set and the same hop bound, so a
+defect in either is still a refusal and never a loop -- the first cut had
+the seen set alone and its mutant was killed only by the test's timeout,
+which is a hang and not a name. Where two un-retracted edges supersede one
+node, `^` follows the lowest seq, the earliest claim; the mount (M3) may
+need both heads and this is the place to revisit. Refused: clamping a depth
+over the bound (a different question answered quietly); the bare-name
+shorthand in the printer (two texts for one query).

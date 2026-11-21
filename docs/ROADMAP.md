@@ -99,6 +99,11 @@ is the oracle the SQLite index of a later head is compared against.
 poisons the index (`ErrPoisoned`), a retraction is final (§7.1 amended,
 one cell), the consistency head is the caller's by design; the history
 read refuses on a poisoned index (`ErrNoEdge` / `ErrPoisoned`).
+3 (2026-11-21): `internal/query`, the textual form of §11.3 (parse and
+print as inverses, bare word as a name term, refusals by name) and the
+traversal of §11.2 in the memory index (`supersedes^`, `rel*N` bounded by
+`MaxDepth` 64, a cycle refused as `ErrNoHead`, retracted edges not walked);
+seven mutants killed by name (D-32).
 
 **Deliverables**
 
