@@ -104,6 +104,13 @@ print as inverses, bare word as a name term, refusals by name) and the
 traversal of §11.2 in the memory index (`supersedes^`, `rel*N` bounded by
 `MaxDepth` 64, a cycle refused as `ErrNoHead`, retracted edges not walked);
 seven mutants killed by name (D-32).
+4 (2026-11-21): quill's clear of head 3 (D-33) — a name may not hold `/`
+(refused at the edge), a bare relation is refused as a name, every parse
+refusal wraps `ErrSyntax`, `Check` bounds the inverse for hand-built
+queries; and the name term FIXED: it looked up the bare word where the
+store writes `lit:<name>`, so it had never matched, and the
+rebuild-compares test could not see it because both indexes agreed on the
+empty answer. Five mutants killed by name.
 
 **Deliverables**
 

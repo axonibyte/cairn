@@ -169,12 +169,17 @@ func (m *Memory) Query(q contract.Query) ([]string, error) {
 	}
 	var result map[string]bool
 	for _, t := range q.Terms {
-		rel := t.Rel
+		rel, object := t.Rel, t.Object
 		if rel == contract.NameRel {
-			rel = "names"
+			// the name term resolves through `names` edges, whose object is the
+			// LITERAL form `lit:<name>` (§4.2): head 1 looked the bare word up
+			// and never matched a stored name, and the rebuild-compares test
+			// could not see it because both indexes agreed on the empty answer
+			// (found under quill's main/1065; the arm now asserts the match)
+			rel, object = "names", "lit:"+t.Object
 		}
 		subjects := map[string]bool{}
-		for _, seq := range m.byRelObject[rel][t.Object] {
+		for _, seq := range m.byRelObject[rel][object] {
 			rec := m.edges[seq]
 			if rec.RetractedBy != 0 {
 				continue

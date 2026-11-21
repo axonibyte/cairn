@@ -63,6 +63,10 @@ var (
 	ErrRelation = errors.New("store: relation is neither core nor an instance relation with a dot")
 	// ErrIdentity is an s or o that is not a concept id, blob identity, edge reference or literal (§4.2).
 	ErrIdentity = errors.New("not a concept id, writer id, blob identity, edge reference or literal")
+	// ErrNameSlash is a `names` literal holding `/`: the mount's path grammar
+	// (§11.3, §12.1) splits on it, so such a name could never be reached and
+	// would be mis-answered as two terms (quill, coop main/1065; D-33).
+	ErrNameSlash = errors.New("store: a name may not contain '/', the path grammar's separator")
 )
 
 type keyFile struct {
@@ -297,7 +301,22 @@ func within(kind string, kinds []string) bool {
 // checkShape admits an edge's subject and object: identities of the kinds
 // §5.2 gives for a core relation; any identity (object optional, literal
 // allowed) for an instance relation.
+// IsRelationName reports whether v is a core relation or an instance
+// relation of §5.2's form, so a grammar can refuse a relation written where
+// a name was meant (D-33).
+func IsRelationName(v string) bool {
+	for _, r := range CoreRelations {
+		if v == r {
+			return true
+		}
+	}
+	return relRe.MatchString(v)
+}
+
 func checkShape(rel, subject, object string) error {
+	if rel == "names" && strings.Contains(object, "/") {
+		return fmt.Errorf("%w: %q", ErrNameSlash, object)
+	}
 	sk, ok := kindOf(subject), kindOf(object)
 	if sk == "" || sk == "literal" {
 		return fmt.Errorf("subject %q is %w", subject, ErrIdentity)

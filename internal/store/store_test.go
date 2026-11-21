@@ -213,3 +213,30 @@ func TestULID(t *testing.T) {
 		t.Fatalf("time prefix not sortable: %s %s", a, b)
 	}
 }
+
+// TestNameSlashRefused is D-33: a `names` literal holding `/` is refused at
+// the edge, because the path grammar of §11.3/§12.1 splits on it and such a
+// concept could never be reached nor answered as one. The control is the
+// same name without the slash, and a slash in a non-name literal is allowed.
+func TestNameSlashRefused(t *testing.T) {
+	s, err := Init(t.TempDir(), 0, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, _, err := s.NewConcept("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Edge("names", c, "lit:a/b", nil); !errors.Is(err, ErrNameSlash) {
+		t.Fatalf("names with a slash: %v, want ErrNameSlash", err)
+	}
+	if _, _, err := s.NewConcept("x/y"); !errors.Is(err, ErrNameSlash) {
+		t.Fatalf("NewConcept with a slash: %v, want ErrNameSlash", err)
+	}
+	if _, err := s.Edge("names", c, "lit:ab", nil); err != nil {
+		t.Fatalf("control: a plain name refused: %v", err)
+	}
+	if _, err := s.Edge("axonibyte.path", c, "lit:a/b", nil); err != nil {
+		t.Fatalf("control: a slash in a non-name literal refused: %v", err)
+	}
+}

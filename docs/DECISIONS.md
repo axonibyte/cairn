@@ -378,3 +378,29 @@ acyclic chain longer than `MaxDepth` must be refused by the bound (the seen
 set alone would walk it). Both mutants are killed by that arm now, by name.
 The lesson is CONTRIBUTING's own: read the mutant's result line as its own
 step; "ok" after a mutant is the mutant surviving, not the arm passing.
+
+**D-33, 2026-11-21. A name may not hold `/`; a bare relation is not a name;
+one error identity for the grammar; `Check` bounds the inverse. And the
+name term had never matched.** *quill's clear of M2 head 3 (coop
+main/1065), four findings; Claude ruled and found a fifth under the first.*
+(1) `name=a/b` parsed as two terms with no error, because the separator
+splits before anything is read; the mount (§12.1) would mis-answer such a
+concept and never reach it. Ruled at the edge, not in the grammar: a
+`names` literal MUST NOT contain `/` (§5.2), refused by the store as
+`ErrNameSlash`, and the grammar inherits the guarantee rather than growing
+an escape. (2) A bare word that is a core or dotted relation, or `name`
+itself, is a reader who forgot the object; refused as `ErrBareRelation`,
+the eighteenth refusal. (3) `String` prints what it is given, so `String`
+then `Parse` was the identity only on queries `Parse` produced; `Check`
+now states the grammar for a hand-built query, and the identity is bounded
+to what `Check` admits. (4) Every refusal of `Parse` wraps `ErrSyntax`, the
+traversal refusals also wrapping their own identity, so a caller with one
+question asks one `errors.Is`. (5) Under the first finding: the store
+writes a name as the literal `lit:<name>` (§4.2), and the index's name term
+looked the bare word up, so `name=alpha` had never matched a stored name
+through three cleared heads. The rebuild-compares test could not see it
+because both indexes agreed on the empty answer, and its non-vacuity
+control counted non-empty answers without saying which; the arm now asserts
+the two name terms resolve to their concepts. Refused: an escape in the
+grammar (a second spelling for one name); clamping or guessing anywhere
+the mount will hand a reader a directory name.

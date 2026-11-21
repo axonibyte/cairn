@@ -142,6 +142,11 @@ func TestRebuildCompares(t *testing.T) {
 	if nonEmpty < 5 {
 		t.Fatalf("only %d of %d queries answered anything; the comparison is vacuous", nonEmpty, len(a))
 	}
+	// the name terms resolve to the concepts: a count of non-empty answers
+	// let the name term return nothing for two days (the literal is lit:<name>)
+	if !reflect.DeepEqual(a[3], []string{f.alpha}) || !reflect.DeepEqual(a[4], []string{f.beta}) {
+		t.Fatalf("name terms: alpha %v beta %v, want [%s] [%s]", a[3], a[4], f.alpha, f.beta)
+	}
 
 	// CONTROL (P-3's mutant, driven rather than planted): the stream with the
 	// cites edge turned into an instance relation the fixture never queries.

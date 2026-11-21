@@ -136,7 +136,7 @@ them. Instances MAY define further types; their names MUST contain a `.`
 
 | Relation | Subject → object | Meaning |
 |---|---|---|
-| `names` | concept → literal | The concept is called this. |
+| `names` | concept → literal | The concept is called this. The literal MUST NOT contain `/`, the path grammar's separator (section 11.3, D-33). |
 | `is-about` | blob or concept → concept | The subject concerns the object. The relation a path query walks. |
 | `cites` | blob or concept → blob or concept | The subject rests on the object as evidence. |
 | `contradicts` | blob or concept → blob or concept | The subject disagrees with the object; both stand. |
