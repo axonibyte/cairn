@@ -44,6 +44,24 @@ type Edge struct {
 // Keys in canonical order (SPEC §4.2).
 var keys = []string{"seq", "t", "w", "prev", "rel", "s", "o", "a", "sig"}
 
+// literalPrefix is §4.2's form of a literal object: the text behind `lit:`.
+// It is read and written HERE and nowhere else (D-33): the store writes a
+// name through Literal, the store's identity kinds and the index's name term
+// read it through IsLiteral and Literal, so a change to §4.2 moves one line
+// and tests/source_test.go refuses the string anywhere else.
+const literalPrefix = "lit:"
+
+// Literal is the object form of the literal `text` (§4.2).
+func Literal(text string) string { return literalPrefix + text }
+
+// IsLiteral reports whether v is a literal object, and returns its text.
+func IsLiteral(v string) (text string, ok bool) {
+	if len(v) < len(literalPrefix) || v[:len(literalPrefix)] != literalPrefix {
+		return "", false
+	}
+	return v[len(literalPrefix):], true
+}
+
 // ErrUnknownKey is returned by Parse for a key SPEC §4.2 does not name.
 var ErrUnknownKey = errors.New("canon: unknown key")
 

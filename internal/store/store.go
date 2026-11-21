@@ -255,6 +255,8 @@ var (
 	relRe     = regexp.MustCompile(`^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$`)
 )
 
+func isLiteral(v string) bool { _, ok := canon.IsLiteral(v); return ok }
+
 // kindOf names what an identity is: concept, writer, blob, edge, literal,
 // or "" for none of them (§4.2).
 func kindOf(v string) string {
@@ -267,7 +269,7 @@ func kindOf(v string) string {
 		return "blob"
 	case edgeRe.MatchString(v):
 		return "edge"
-	case strings.HasPrefix(v, "lit:"):
+	case isLiteral(v):
 		return "literal"
 	}
 	return ""
@@ -416,7 +418,7 @@ func (s *Store) NewConcept(name string) (string, uint64, error) {
 	if err != nil {
 		return "", 0, err
 	}
-	seq, err := s.Edge("names", id, "lit:"+name, nil)
+	seq, err := s.Edge("names", id, canon.Literal(name), nil)
 	return id, seq, err
 }
 

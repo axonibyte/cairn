@@ -111,6 +111,10 @@ queries; and the name term FIXED: it looked up the bare word where the
 store writes `lit:<name>`, so it had never matched, and the
 rebuild-compares test could not see it because both indexes agreed on the
 empty answer. Five mutants killed by name.
+4b (2026-11-21): quill's clear of head 4 — the literal form of §4.2 gets one
+reader (`canon.Literal` / `canon.IsLiteral`) with a tier-3 arm refusing the
+string elsewhere; `Check` admits `=` in an object, which Parse reads at its
+first occurrence only.
 
 **Deliverables**
 

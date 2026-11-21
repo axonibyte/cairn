@@ -126,7 +126,8 @@ func parseTraversal(c string) (contract.Traversal, bool, error) {
 // then Parse is the identity exactly on the queries Check admits: at least
 // one term, no empty relation or object, no `/` in an object (the path
 // grammar's separator; §12.1), no relation written as a name, and every
-// traversal of §11.2's form. Parse's own output always passes it.
+// traversal of §11.2's form. An object MAY hold `=`, which Parse reads at
+// its first occurrence only. Parse's own output always passes it.
 func Check(q contract.Query) error {
 	if len(q.Terms) == 0 {
 		return fmt.Errorf("%w: no term", ErrSyntax)
@@ -135,7 +136,9 @@ func Check(q contract.Query) error {
 		if t.Rel == "" || t.Object == "" {
 			return fmt.Errorf("%w: term %q needs both a relation and an object", ErrSyntax, t.Rel+"="+t.Object)
 		}
-		if strings.ContainsAny(t.Rel, "/*^=") || strings.ContainsAny(t.Object, "/=") {
+		// `=` is significant only at its first occurrence, so an object may
+		// hold it and round-trips (quill, coop main/1067); `/` is the separator
+		if strings.ContainsAny(t.Rel, "/*^=") || strings.Contains(t.Object, "/") {
 			return fmt.Errorf("%w: %q holds a separator", ErrSyntax, t.Rel+"="+t.Object)
 		}
 	}

@@ -150,6 +150,14 @@ func TestCheckBoundsTheInverse(t *testing.T) {
 			t.Errorf("bad %d: %q round-tripped although Check refused it", i, String(q))
 		}
 	}
+	// = in an object is admitted and round-trips: Parse cuts at the first =
+	eq := contract.Query{Terms: []contract.Term{{Rel: contract.NameRel, Object: "b=c"}}}
+	if err := Check(eq); err != nil {
+		t.Errorf("Check refused = in an object: %v", err)
+	}
+	if again, err := Parse(String(eq)); err != nil || !reflect.DeepEqual(again, eq) {
+		t.Errorf("= in an object did not round-trip: %+v %v", again, err)
+	}
 	for _, text := range []string{"is-about=c:A", "alpha/cites*2/supersedes^", "axonibyte.decided-by=c:P/supersedes*64"} {
 		q, err := Parse(text)
 		if err != nil {

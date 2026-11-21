@@ -176,7 +176,7 @@ func (m *Memory) Query(q contract.Query) ([]string, error) {
 			// and never matched a stored name, and the rebuild-compares test
 			// could not see it because both indexes agreed on the empty answer
 			// (found under quill's main/1065; the arm now asserts the match)
-			rel, object = "names", "lit:"+t.Object
+			rel, object = "names", canon.Literal(t.Object)
 		}
 		subjects := map[string]bool{}
 		for _, seq := range m.byRelObject[rel][object] {

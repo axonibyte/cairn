@@ -404,3 +404,15 @@ control counted non-empty answers without saying which; the arm now asserts
 the two name terms resolve to their concepts. Refused: an escape in the
 grammar (a second spelling for one name); clamping or guessing anywhere
 the mount will hand a reader a directory name.
+
+*Addendum, same morning (quill's clear of head 4, coop main/1067).* The
+prefix `lit:` was a string at three sites in two packages, which is the
+shape that let the index spell one thing while the store wrote another;
+§4.2 now has one reader, `canon.Literal` and `canon.IsLiteral`, and a
+tier-3 arm (`tests/source_test.go`) refuses the string anywhere else in
+the engine's code, with canon itself as the control that the walk can see
+it. `Check` over-refused `=` in an object: `Parse` reads `=` at its first
+occurrence only, so `name=b=c` round-trips, and `Check` now agrees with the
+store, which admits such a name; only `/` is the separator. quill's own
+miss on the head-1 clear is theirs in their words at main/1067 and mine in
+D-33: a probe that builds its own premise cannot test it.
