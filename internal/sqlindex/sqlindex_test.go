@@ -1,6 +1,7 @@
 package sqlindex
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -15,6 +16,8 @@ import (
 	"forge.axonibyte.com/axonibyte/cairn/internal/log"
 	"forge.axonibyte.com/axonibyte/cairn/internal/query"
 	"forge.axonibyte.com/axonibyte/cairn/internal/store"
+
+	_ "modernc.org/sqlite"
 )
 
 // world is a store with every shape the two indexes must agree on: concepts
@@ -389,5 +392,84 @@ func TestTenThousandEdgeRebuild(t *testing.T) {
 	}
 	if nonEmpty < 100 {
 		t.Fatalf("only %d of %d queries answered anything", nonEmpty, len(qs))
+	}
+}
+
+// TestTamperedFileOpensPoisoned is quill's finding at coop main/1074: a file
+// whose recorded At() disagrees with its rows is a state the memory index
+// cannot hold, and an At() ABOVE the rows defeats QueryAt, which refuses only
+// a position that is too low. Three tamperings -- the position inflated, the
+// position deflated, a row missing inside the range -- each open poisoned and
+// answer nothing until a Rebuild; the control is the untouched file, which
+// opens at its At() and answers.
+func TestTamperedFileOpensPoisoned(t *testing.T) {
+	w := newWorld(t)
+	q := contract.Query{Terms: []contract.Term{{Rel: "is-about", Object: w.alpha}}}
+	build := func() string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "index.sqlite")
+		x, err := Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := x.Rebuild(readAll(w.s)); err != nil {
+			t.Fatal(err)
+		}
+		x.Close()
+		return path
+	}
+	tamper := func(path, stmt string) {
+		t.Helper()
+		db, err := sql.Open("sqlite", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
+		db.Close()
+	}
+	head := w.s.Head()
+	cases := map[string]string{
+		"position inflated": fmt.Sprintf(`UPDATE meta SET v = %d WHERE k = 'at'`, head+5),
+		"position deflated": `UPDATE meta SET v = 1 WHERE k = 'at'`,
+		"row missing":       `DELETE FROM edges WHERE seq = 7`,
+	}
+	for name, stmt := range cases {
+		path := build()
+		tamper(path, stmt)
+		x, err := Open(path)
+		if err != nil {
+			t.Fatalf("%s: Open refused outright: %v (it should open poisoned)", name, err)
+		}
+		if _, err := x.Query(q); !errors.Is(err, contract.ErrPoisoned) {
+			t.Errorf("%s: Query %v, want ErrPoisoned", name, err)
+		}
+		if _, err := x.QueryAt(q, head); !errors.Is(err, contract.ErrPoisoned) {
+			t.Errorf("%s: QueryAt %v, want ErrPoisoned", name, err)
+		}
+		if _, err := x.Edge(1); !errors.Is(err, contract.ErrPoisoned) {
+			t.Errorf("%s: Edge %v, want ErrPoisoned", name, err)
+		}
+		if err := x.Rebuild(readAll(w.s)); err != nil {
+			t.Fatalf("%s: rebuild after tampering: %v", name, err)
+		}
+		if got, err := x.Query(q); err != nil || len(got) == 0 {
+			t.Errorf("%s: after the rebuild: %v %v", name, got, err)
+		}
+		x.Close()
+	}
+	// control
+	path := build()
+	x, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer x.Close()
+	if x.At() != head {
+		t.Fatalf("control: At() %d, want %d", x.At(), head)
+	}
+	if got, err := x.QueryAt(q, head); err != nil || len(got) == 0 {
+		t.Fatalf("control: an untouched file answers: %v %v", got, err)
 	}
 }

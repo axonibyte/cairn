@@ -444,3 +444,19 @@ mutant that re-pointed a second retraction survived until the world held a
 second retraction of the same edge. Refused: cgo (a compiler in the reader's
 way); per-edge commits (durability nobody asked of a derived thing); a
 schema in the specification (§10.1 says it is an implementation matter).
+
+*Addendum, same afternoon (quill's clear of head 5, coop main/1074).* A
+file's recorded position and its rows can disagree, after a crash with the
+journal in memory or after a hand, and the memory index can never hold that
+state; an `At()` above the rows defeats `QueryAt`, which refuses only a
+position that is too LOW. `Open` now checks the resume instead of trusting
+it: every seq 1..At() present and none beyond, or the index opens poisoned
+and answers nothing until a `Rebuild`. Arm: three tamperings of a closed
+file (position inflated, deflated, a row missing inside the range) each
+open poisoned and heal on rebuild, with the untouched file as control;
+mutants: the check removed, and the check reduced to the highest seq alone
+(a missing row would pass), each killed. The single-connection rule's
+reason now covers the file case too: it serialises readers, acceptable for
+0.1's one-process CLI and the mount's to revisit. quill's second reading of
+the acceptance figure, 0.36 s on their box, strengthens the 1.2 s the
+roadmap carries, which is the slower and the right one for a bound.

@@ -65,7 +65,11 @@ func Open(path string) (*SQLite, error) {
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(1) // one connection: an in-memory database per connection would be two indexes
+	// one connection: an in-memory database per connection would be two
+	// indexes, and on a file it serialises every reader -- acceptable for
+	// 0.1's one-process CLI and a bottleneck the mount (M3) must revisit
+	// (quill, coop main/1074)
+	db.SetMaxOpenConns(1)
 	// the index is disposable (§6.3, §10.3): durability is the log's, so the
 	// journal and the sync are relaxed -- a crash mid-write costs a rebuild
 	// and nothing else, and a rebuild is the test of the index anyway (D-34)
@@ -85,6 +89,21 @@ func Open(path string) (*SQLite, error) {
 	}
 	if at.Valid {
 		ix.at = uint64(at.Int64)
+	}
+	// THE RESUME IS CHECKED, NOT TRUSTED (quill, coop main/1074). A file is a
+	// state the memory index can never hold: its recorded position and its
+	// rows can disagree after a crash or a hand, and an At() above the rows
+	// defeats the one currency guard the contract has, since ErrStale fires
+	// only when At() is too low. Every seq 1..At() must be present and none
+	// beyond it, or the index opens poisoned and answers nothing until a
+	// Rebuild.
+	var count, maxSeq int64
+	if err := db.QueryRow(`SELECT COUNT(*), COALESCE(MAX(seq), 0) FROM edges`).Scan(&count, &maxSeq); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if uint64(maxSeq) != ix.at || uint64(count) != ix.at {
+		ix.poison(fmt.Errorf("the file's recorded position %d disagrees with its rows (%d rows, highest seq %d)", ix.at, count, maxSeq))
 	}
 	return ix, nil
 }
