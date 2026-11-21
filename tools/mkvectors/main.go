@@ -77,7 +77,7 @@ func main() {
 	inputs := []canon.Edge{
 		{Seq: 1, T: "2026-11-18T00:00:00.000Z", W: ed.ID(), Rel: "key-of", S: ed.ID(), O: "c:01ARZ3NDEKTSV4RRFFQ69G5FAV", A: map[string]any{"pub": ed.Public().String()}},
 		{Seq: 2, T: "2026-11-18T00:00:00.001Z", W: ed.ID(), Rel: "key-of", S: ml.ID(), O: "c:01ARZ3NDEKTSV4RRFFQ69G5FAV", A: map[string]any{"pub": ml.Public().String()}},
-		{Seq: 3, T: "2026-11-18T00:00:01.000Z", W: ed.ID(), Rel: "names", S: "c:01ARZ3NDEKTSV4RRFFQ69G5FAV", O: "lit:cal"},
+		{Seq: 3, T: "2026-11-18T00:00:01.000Z", W: ed.ID(), Rel: "names", S: "c:01ARZ3NDEKTSV4RRFFQ69G5FAV", O: canon.Literal("cal")},
 		{Seq: 4, T: "2026-11-18T00:00:02.000Z", W: ed.ID(), Rel: "is-about", S: "sha256:" + strings.Repeat("ab", 32), O: "c:01ARZ3NDEKTSV4RRFFQ69G5FAV", A: map[string]any{"via": "tool <&> / \"quoted\" \\ é   tab\t", "n": int64(-7), "big": int64(9007199254740993), "ok": true, "none": nil, "list": []any{int64(1), "two", false}}},
 		{Seq: 5, T: "2026-11-18T00:00:03.000Z", W: ed.ID(), Rel: "axonibyte.flagged", S: "c:01ARZ3NDEKTSV4RRFFQ69G5FAV"},
 	}
