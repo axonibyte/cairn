@@ -25,6 +25,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sort"
 
 	_ "modernc.org/sqlite"
@@ -324,6 +325,50 @@ func (x *SQLite) QueryAt(q contract.Query, head uint64) ([]string, error) {
 		return nil, fmt.Errorf("%w: At() %d, head %d", contract.ErrStale, x.at, head)
 	}
 	return x.Query(q)
+}
+
+// Current is contract.Currency, as the memory index answers it.
+func (x *SQLite) Current(identity string) (string, error) {
+	if x.poisoned != nil {
+		return "", x.poisoned
+	}
+	return x.headOf(identity)
+}
+
+var _ contract.Currency = (*SQLite)(nil)
+
+// FileName is the index file beside a store's cairn.json.
+const FileName = "index.sqlite"
+
+// Sync opens the store's index file and brings it to the store's head: a
+// fresh, poisoned or over-long index is rebuilt from seq 1; an index behind
+// the head has the missing tail applied (the store's ReadLog verifies the
+// whole chain either way, §6.1). It returns an index whose At() is the head,
+// so a caller's QueryAt(q, head) cannot refuse; any other outcome is an
+// error. The policy is D-35's: a reader never answers from an index it did
+// not just bring to the log.
+func Sync(root string, head uint64, read func(from uint64, fn func(log.Verified) error) error) (*SQLite, error) {
+	x, err := Open(filepath.Join(root, FileName))
+	if err != nil {
+		return nil, err
+	}
+	rebuild := func() error {
+		return x.Rebuild(func(fn func(log.Verified) error) error { return read(1, fn) })
+	}
+	switch {
+	case x.poisoned != nil || x.at > head:
+		err = rebuild()
+	case x.at < head:
+		err = read(x.at+1, x.Apply)
+		if err == nil && x.at != head {
+			err = fmt.Errorf("%w: applied the tail and reached %d, head %d", contract.ErrStale, x.at, head)
+		}
+	}
+	if err != nil {
+		x.Close()
+		return nil, err
+	}
+	return x, nil
 }
 
 // superseded is §5.4.

@@ -1,5 +1,6 @@
 // cairn is the command. M1's subcommands: init, put, edge, log, verify,
-// version. Each one is specified in docs/SPEC.md first and does one thing;
+// version; M2's: query, current, each answered through the SQLite index
+// beside the store, brought to the log's head first (sqlindex.Sync, D-35). Each one is specified in docs/SPEC.md first and does one thing;
 // a refusal is written to stderr by name; stdout carries exactly one value
 // per command (an identity, an id, a seq) so that a shell can compose them,
 // and every note goes to stderr.
@@ -18,7 +19,10 @@ import (
 
 	"forge.axonibyte.com/axonibyte/cairn/internal/cairn"
 	"forge.axonibyte.com/axonibyte/cairn/internal/canon"
+	"forge.axonibyte.com/axonibyte/cairn/internal/contract"
 	"forge.axonibyte.com/axonibyte/cairn/internal/log"
+	"forge.axonibyte.com/axonibyte/cairn/internal/query"
+	"forge.axonibyte.com/axonibyte/cairn/internal/sqlindex"
 	"forge.axonibyte.com/axonibyte/cairn/internal/store"
 )
 
@@ -34,6 +38,8 @@ const usage = `cairn: a content-addressed store of relations (docs/SPEC.md)
   cairn concept <root> <name>                    mint a concept named by a literal; stdout: the id alone
   cairn log <root> [--from N]                    print the log's written forms from seq N
   cairn verify <root>                            verify every line, hash, signature and seal
+  cairn query <root> <expr>                      answer a query of SPEC 11.3 at the log's head; stdout: one identity per line, sorted
+  cairn current <root> <identity>                the current head of the identity's supersedes chain; stdout: the identity alone
   cairn version
 `
 
@@ -184,10 +190,54 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprintf(stdout, "verified %d edges; last seal at seq %d\n", n, seal)
 		return 0
+	case "query", "current":
+		if len(args) != 3 {
+			fmt.Fprintf(stderr, "cairn %s <root> <%s>\n", args[0], map[string]string{"query": "expr", "current": "identity"}[args[0]])
+			return 2
+		}
+		s, err := store.Open(args[1])
+		if err != nil {
+			return refuse(stderr, args[0], err)
+		}
+		var q contractQuery
+		if args[0] == "query" {
+			// the grammar is checked before the index is touched, so a malformed
+			// expression costs no rebuild
+			q.q, err = query.Parse(args[2])
+			if err != nil {
+				return refuse(stderr, "query", err)
+			}
+		}
+		head := s.Head()
+		ix, err := sqlindex.Sync(s.Root, head, func(from uint64, fn func(log.Verified) error) error { return s.ReadLog(from, fn) })
+		if err != nil {
+			return refuse(stderr, args[0], err)
+		}
+		defer ix.Close()
+		fmt.Fprintf(stderr, "index at seq %d\n", ix.At())
+		if args[0] == "current" {
+			head, err := ix.Current(args[2])
+			if err != nil {
+				return refuse(stderr, "current", err)
+			}
+			fmt.Fprintln(stdout, head)
+			return 0
+		}
+		subjects, err := ix.QueryAt(q.q, head)
+		if err != nil {
+			return refuse(stderr, "query", err)
+		}
+		for _, id := range subjects {
+			fmt.Fprintln(stdout, id)
+		}
+		return 0
 	}
 	fmt.Fprintf(stderr, "cairn: %q is not a command\n%s", args[0], usage)
 	return 2
 }
+
+// contractQuery holds a parsed query so the switch above reads flat.
+type contractQuery struct{ q contract.Query }
 
 // refuse writes a named refusal and returns status 1.
 func refuse(stderr io.Writer, cmd string, err error) int {

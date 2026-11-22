@@ -451,6 +451,9 @@ func TestTamperedFileOpensPoisoned(t *testing.T) {
 		if _, err := x.Edge(1); !errors.Is(err, contract.ErrPoisoned) {
 			t.Errorf("%s: Edge %v, want ErrPoisoned", name, err)
 		}
+		if _, err := x.Current(w.b1); !errors.Is(err, contract.ErrPoisoned) {
+			t.Errorf("%s: Current %v, want ErrPoisoned (every reader refuses, D-34)", name, err)
+		}
 		if err := x.Rebuild(readAll(w.s)); err != nil {
 			t.Fatalf("%s: rebuild after tampering: %v", name, err)
 		}
@@ -471,5 +474,80 @@ func TestTamperedFileOpensPoisoned(t *testing.T) {
 	}
 	if got, err := x.QueryAt(q, head); err != nil || len(got) == 0 {
 		t.Fatalf("control: an untouched file answers: %v %v", got, err)
+	}
+}
+
+// TestSync is D-35: Sync brings the index file beside a store to the log's
+// head whatever state it is in -- fresh (rebuilt), behind (the tail
+// applied, no rebuild), poisoned (rebuilt), beyond the head (rebuilt) -- and
+// returns an index at the head. The tail case is told from a rebuild by
+// a counter on the reader: a resume reads from At()+1, a rebuild from 1.
+func TestSync(t *testing.T) {
+	w := newWorld(t)
+	var froms []uint64
+	read := func(from uint64, fn func(log.Verified) error) error {
+		froms = append(froms, from)
+		return w.s.ReadLog(from, fn)
+	}
+	head := w.s.Head()
+	q := contract.Query{Terms: []contract.Term{{Rel: "is-about", Object: w.alpha}}}
+	// fresh: rebuilt from 1
+	x, err := Sync(w.s.Root, head, read)
+	if err != nil || x.At() != head {
+		t.Fatalf("fresh: %v at %d", err, x.At())
+	}
+	fresh, _ := x.QueryAt(q, head)
+	x.Close()
+	if len(froms) != 1 || froms[0] != 1 {
+		t.Fatalf("fresh sync did not rebuild from 1: %v", froms)
+	}
+	// behind: two more edges, the tail applied from At()+1
+	froms = nil
+	for i := 0; i < 2; i++ {
+		if _, err := w.s.Edge("is-about", w.b3, w.alpha, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	x, err = Sync(w.s.Root, w.s.Head(), read)
+	if err != nil || x.At() != w.s.Head() {
+		t.Fatalf("behind: %v at %d head %d", err, x.At(), w.s.Head())
+	}
+	x.Close()
+	if len(froms) != 1 || froms[0] != head+1 {
+		t.Fatalf("a resume must read from At()+1 = %d, read %v", head+1, froms)
+	}
+	// beyond the head (a tampered position): rebuilt from 1
+	froms = nil
+	db, _ := sql.Open("sqlite", filepath.Join(w.s.Root, FileName))
+	if _, err := db.Exec(`UPDATE meta SET v = 999 WHERE k = 'at'`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	x, err = Sync(w.s.Root, w.s.Head(), read)
+	if err != nil || x.At() != w.s.Head() {
+		t.Fatalf("tampered: %v at %d", err, x.At())
+	}
+	got, err := x.QueryAt(q, w.s.Head())
+	x.Close()
+	if err != nil || len(got) == 0 || len(got) != len(fresh) {
+		t.Fatalf("after the rebuild: %v %v (fresh %v)", got, err, fresh)
+	}
+	if len(froms) != 1 || froms[0] != 1 {
+		t.Fatalf("a poisoned file must be rebuilt from 1, read %v", froms)
+	}
+	// a reader that falls short of the head is refused, not trusted
+	short := func(from uint64, fn func(log.Verified) error) error {
+		return w.s.ReadLog(from, func(v log.Verified) error {
+			if v.Edge.Seq > w.s.Head()-1 {
+				return nil
+			}
+			return fn(v)
+		})
+	}
+	if _, err := w.s.Edge("cites", w.b3, w.b1, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Sync(w.s.Root, w.s.Head(), short); !errors.Is(err, contract.ErrStale) {
+		t.Fatalf("a short tail: %v, want ErrStale", err)
 	}
 }

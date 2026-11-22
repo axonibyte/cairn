@@ -57,6 +57,16 @@ type Index interface {
 	QueryAt(q Query, head uint64) ([]string, error)
 }
 
+// Currency is the one question §5.4 asks of an index beyond a query: the
+// current head of an identity's supersedes chain. It is an extension and
+// not part of Index, because §6.1 lists what every index MUST answer and a
+// head is derivable from Query (`<term>/supersedes^`) for any identity a
+// term can select; an index that implements it answers `cairn current`
+// directly. An identity nothing supersedes is its own head, seen or not.
+type Currency interface {
+	Current(identity string) (string, error)
+}
+
 // Term is one `rel=object` of §11.1. Rel "name" is the name term, which
 // resolves through `names` edges to the concepts called `Object`.
 type Term struct {

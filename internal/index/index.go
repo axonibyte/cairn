@@ -304,6 +304,17 @@ func (m *Memory) QueryAt(q contract.Query, head uint64) ([]string, error) {
 	return m.Query(q)
 }
 
+// Current is contract.Currency: the head of identity's supersedes chain
+// (§5.4), refusing while poisoned and on a cycle as Query would.
+func (m *Memory) Current(identity string) (string, error) {
+	if m.poisoned != nil {
+		return "", m.poisoned
+	}
+	return m.headOf(identity)
+}
+
+var _ contract.Currency = (*Memory)(nil)
+
 // superseded is §5.4: some un-retracted `supersedes` edge names s as object.
 func (m *Memory) superseded(s string) bool {
 	for _, seq := range m.supersededBy[s] {
