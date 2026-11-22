@@ -368,8 +368,13 @@ func Sync(root string, head uint64, read func(from uint64, fn func(log.Verified)
 	// form checked only the resume branch; quill drove a head of 3 against a
 	// log at 29 and got an index at 29 with err nil, which QueryAt(q, 3) could
 	// not refuse (coop main/1085).
-	if err == nil && x.at != head {
-		err = fmt.Errorf("%w: brought the index to %d, head %d; the head and the reader disagree", contract.ErrStale, x.at, head)
+	switch {
+	case err == nil && x.at < head:
+		err = fmt.Errorf("%w: brought the index to %d, head %d", contract.ErrStale, x.at, head)
+	case err == nil && x.at > head:
+		// not ErrStale: the index is AHEAD of the head it was asked for, and
+		// §10.2 defines stale as behind (quill, coop main/1087)
+		err = fmt.Errorf("%w: brought the index to %d, head %d", contract.ErrHeadDisagrees, x.at, head)
 	}
 	if err != nil {
 		x.Close()

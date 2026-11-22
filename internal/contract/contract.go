@@ -107,6 +107,12 @@ var (
 	// ErrStale is QueryAt on an index behind the head it was asked to be
 	// consistent with (§10.2).
 	ErrStale = errors.New("index: At() is behind the log head; rebuild or apply before a consistent answer")
+	// ErrHeadDisagrees is Sync's refusal when the head it was given is BEHIND
+	// the log its reader ends at: neither side is trusted and no index comes
+	// back. §10.2 defines ErrStale as an index behind the head, so the converse
+	// has its own identity rather than a message that contradicts its name
+	// (quill, coop main/1087).
+	ErrHeadDisagrees = errors.New("index: the head asked for is behind the log the reader ends at; neither is trusted")
 	// ErrGap is Apply of an edge whose seq is not At()+1.
 	ErrGap = errors.New("index: edge seq is not At()+1; an index with a gap answers from a log that never was")
 	// ErrEmptyQuery is a query with no term: every subject would hold, which

@@ -560,8 +560,8 @@ func TestSync(t *testing.T) {
 		t.Fatal(err)
 	}
 	x.Close()
-	if x, err := Sync(w.s.Root, 3, read); !errors.Is(err, contract.ErrStale) || x != nil {
-		t.Fatalf("a head short of the reader: %v, index %v; want ErrStale and no index", err, x)
+	if x, err := Sync(w.s.Root, 3, read); !errors.Is(err, contract.ErrHeadDisagrees) || errors.Is(err, contract.ErrStale) || x != nil {
+		t.Fatalf("a head short of the reader: %v, index %v; want ErrHeadDisagrees (not ErrStale: the index is ahead, 10.2) and no index", err, x)
 	}
 	// and the control: the true head still syncs after the refusal
 	if x, err := Sync(w.s.Root, w.s.Head(), read); err != nil || x.At() != w.s.Head() {

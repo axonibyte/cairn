@@ -525,3 +525,13 @@ the identity at status 0, which §5.4 makes correct and which leaves a typo
 indistinguishable from a live un-superseded blob; the usage line says so,
 and a refusal or a stderr note waits for the mount, where the index will
 be asked whether it has ever seen a name.
+
+*Second addendum (quill at coop main/1087, clearing head 6).* The two
+sides of the postcondition carry two identities: a reader ending short of
+the head is `ErrStale` (the index is behind, as §10.2 defines it); a head
+short of the reader is `ErrHeadDisagrees`, new, because the index there is
+AHEAD and a message that says "behind the log head; rebuild" in its first
+clause and "the reader ends at 29, head 3" in its second contradicts
+itself. Two identities keep §10.2 honest; a caller with one question still
+has it, since Sync returns no index on either. The arm tells them apart
+and the mutant that swaps them is killed.
