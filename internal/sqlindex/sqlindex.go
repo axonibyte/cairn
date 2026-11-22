@@ -344,9 +344,10 @@ const FileName = "index.sqlite"
 // fresh, poisoned or over-long index is rebuilt from seq 1; an index behind
 // the head has the missing tail applied (the store's ReadLog verifies the
 // whole chain either way, §6.1). It returns an index whose At() is the head,
-// so a caller's QueryAt(q, head) cannot refuse; any other outcome is an
-// error. The policy is D-35's: a reader never answers from an index it did
-// not just bring to the log.
+// checked after every branch, so a caller's QueryAt(q, head) cannot refuse;
+// any other outcome -- a reader that ends short of the head, or a head that
+// is short of the reader -- is an error and no index. The policy is D-35's:
+// a reader never answers from an index it did not just bring to the log.
 func Sync(root string, head uint64, read func(from uint64, fn func(log.Verified) error) error) (*SQLite, error) {
 	x, err := Open(filepath.Join(root, FileName))
 	if err != nil {
@@ -360,9 +361,15 @@ func Sync(root string, head uint64, read func(from uint64, fn func(log.Verified)
 		err = rebuild()
 	case x.at < head:
 		err = read(x.at+1, x.Apply)
-		if err == nil && x.at != head {
-			err = fmt.Errorf("%w: applied the tail and reached %d, head %d", contract.ErrStale, x.at, head)
-		}
+	}
+	// the postcondition, on EVERY branch: a rebuild reads through the reader,
+	// which ends where the log ends, so a head that disagrees with the reader
+	// lands the index somewhere else and is refused, not returned. The first
+	// form checked only the resume branch; quill drove a head of 3 against a
+	// log at 29 and got an index at 29 with err nil, which QueryAt(q, 3) could
+	// not refuse (coop main/1085).
+	if err == nil && x.at != head {
+		err = fmt.Errorf("%w: brought the index to %d, head %d; the head and the reader disagree", contract.ErrStale, x.at, head)
 	}
 	if err != nil {
 		x.Close()

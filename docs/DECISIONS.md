@@ -502,3 +502,26 @@ joined them with `;` and not `&&`. The follow-up commit carries them and
 this note; the rule it adds to the one of 2026-11-21 (read the suite's
 exit status) is that a pipeline of edits and a commit stops at the first
 failure, and the commit is read as its own step too.
+
+*Addendum, the same afternoon (quill at coop main/1085, reading head 6).*
+Sync's postcondition was not guaranteed on the over-long branch: a rebuild
+reads through the reader, which ends where the log ends, so a head short of
+the reader (quill drove 3 against a log at 29) came back as an index at 29
+with no error, and `QueryAt(q, 3)` could not refuse it. Within the command
+both come from one store, so the hole did not open there; the mount is
+where a head from one place meets a reader from another. The check now
+follows EVERY branch: an index not at the head is closed and refused as
+`ErrStale`, whichever side fell short. And the survivor above is therefore
+reclassified: `Query` in place of `QueryAt` was equivalent only on the
+premise the postcondition holds, which it did not, so `QueryAt` was
+load-bearing, not dead. Both are now pinned: the Sync arm (a head short of
+the reader refused, with a control) and a command arm that hands the
+command an index short of the head through a swappable `syncIndex` and
+sees the refusal -- quill's shape, keep the guard and pin the premise. Two
+mutants killed by name: the postcondition removed (TestSync) and `Query`
+for `QueryAt` (TestQueryAtIsTheGuard, which the survivor's former verdict
+could not have produced). `current` of an identity no edge names answers
+the identity at status 0, which §5.4 makes correct and which leaves a typo
+indistinguishable from a live un-superseded blob; the usage line says so,
+and a refusal or a stderr note waits for the mount, where the index will
+be asked whether it has ever seen a name.

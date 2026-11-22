@@ -550,4 +550,23 @@ func TestSync(t *testing.T) {
 	if _, err := Sync(w.s.Root, w.s.Head(), short); !errors.Is(err, contract.ErrStale) {
 		t.Fatalf("a short tail: %v, want ErrStale", err)
 	}
+	// the converse (quill, coop main/1085): a HEAD short of the reader. The
+	// index is at the log's end; asked for head 3, the over-long branch
+	// rebuilds through a reader that ends at the log's end again, and the
+	// first form returned that index with err nil -- At() 29, head 3, and
+	// QueryAt(q, 3) unable to refuse. Now no index comes back.
+	x, err = Sync(w.s.Root, w.s.Head(), read)
+	if err != nil {
+		t.Fatal(err)
+	}
+	x.Close()
+	if x, err := Sync(w.s.Root, 3, read); !errors.Is(err, contract.ErrStale) || x != nil {
+		t.Fatalf("a head short of the reader: %v, index %v; want ErrStale and no index", err, x)
+	}
+	// and the control: the true head still syncs after the refusal
+	if x, err := Sync(w.s.Root, w.s.Head(), read); err != nil || x.At() != w.s.Head() {
+		t.Fatalf("control after the refusal: %v", err)
+	} else {
+		x.Close()
+	}
 }

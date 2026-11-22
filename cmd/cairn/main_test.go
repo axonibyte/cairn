@@ -10,6 +10,9 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"forge.axonibyte.com/axonibyte/cairn/internal/log"
+	"forge.axonibyte.com/axonibyte/cairn/internal/sqlindex"
 )
 
 type out struct {
@@ -331,5 +334,57 @@ func TestTheM2Walk(t *testing.T) {
 	o = cli("query", root, "is-about="+alpha)
 	if o.status != 0 || strings.TrimSpace(o.stdout) != b3 {
 		t.Fatalf("after tampering the index: %+v, want a rebuilt answer %s", o, b3)
+	}
+}
+
+// TestQueryAtIsTheGuard pins the premise under the command (quill, coop
+// main/1085): the command asks QueryAt at the store's head, not Query, so an
+// index that is somehow short of the head is refused and never answered.
+// Sync's postcondition makes a short index impossible in the binary; here
+// the command is handed one directly -- a Sync that brings the index to
+// head-1 through a reader bounded there -- and must refuse by name with
+// status 1. The control is the same store through the real Sync.
+func TestQueryAtIsTheGuard(t *testing.T) {
+	root := t.TempDir()
+	if o := cli("init", root); o.status != 0 {
+		t.Fatalf("init: %+v", o)
+	}
+	o := cli("concept", root, "alpha")
+	if o.status != 0 {
+		t.Fatalf("concept: %+v", o)
+	}
+	alpha := strings.TrimSpace(o.stdout)
+	o = cliStdin("a draft", "put", root, "-")
+	if o.status != 0 {
+		t.Fatalf("put: %+v", o)
+	}
+	b1 := strings.TrimSpace(o.stdout)
+	if o := cli("edge", root, "is-about", b1, alpha); o.status != 0 {
+		t.Fatalf("edge: %+v", o)
+	}
+	real := syncIndex
+	defer func() { syncIndex = real }()
+	syncIndex = func(root string, head uint64, read func(from uint64, fn func(log.Verified) error) error) (*sqlindex.SQLite, error) {
+		bounded := func(from uint64, fn func(log.Verified) error) error {
+			return read(from, func(v log.Verified) error {
+				if v.Edge.Seq > head-1 {
+					return nil
+				}
+				return fn(v)
+			})
+		}
+		return sqlindex.Sync(root, head-1, bounded)
+	}
+	o = cli("query", root, "is-about="+alpha)
+	if o.status != 1 || !strings.Contains(o.stderr, "REFUSED") || !strings.Contains(o.stderr, "behind the log head") {
+		t.Fatalf("an index short of the head was not refused: %+v", o)
+	}
+	if o.stdout != "" {
+		t.Fatalf("a refusal wrote to stdout: %q", o.stdout)
+	}
+	syncIndex = real
+	o = cli("query", root, "is-about="+alpha)
+	if o.status != 0 || strings.TrimSpace(o.stdout) != b1 {
+		t.Fatalf("control through the real Sync: %+v", o)
 	}
 }

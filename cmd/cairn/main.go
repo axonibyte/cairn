@@ -39,7 +39,8 @@ const usage = `cairn: a content-addressed store of relations (docs/SPEC.md)
   cairn log <root> [--from N]                    print the log's written forms from seq N
   cairn verify <root>                            verify every line, hash, signature and seal
   cairn query <root> <expr>                      answer a query of SPEC 11.3 at the log's head; stdout: one identity per line, sorted
-  cairn current <root> <identity>                the current head of the identity's supersedes chain; stdout: the identity alone
+  cairn current <root> <identity>                the current head of the identity's supersedes chain (5.4); stdout: the identity alone;
+                                                 an identity no edge names is its own head -- a typo answers as itself, status 0
   cairn version
 `
 
@@ -209,7 +210,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			}
 		}
 		head := s.Head()
-		ix, err := sqlindex.Sync(s.Root, head, func(from uint64, fn func(log.Verified) error) error { return s.ReadLog(from, fn) })
+		ix, err := syncIndex(s.Root, head, func(from uint64, fn func(log.Verified) error) error { return s.ReadLog(from, fn) })
 		if err != nil {
 			return refuse(stderr, args[0], err)
 		}
@@ -235,6 +236,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stderr, "cairn: %q is not a command\n%s", args[0], usage)
 	return 2
 }
+
+// syncIndex is sqlindex.Sync; a variable so that the test can hand the
+// command an index short of the head and see QueryAt refuse it. Sync's
+// postcondition makes that impossible in the binary, and QueryAt stays as
+// the guard that would catch it if the premise ever broke (quill, coop
+// main/1085: keep the guard, pin the premise).
+var syncIndex = sqlindex.Sync
 
 // contractQuery holds a parsed query so the switch above reads flat.
 type contractQuery struct{ q contract.Query }
