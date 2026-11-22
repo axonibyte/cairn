@@ -470,3 +470,35 @@ rebuild, the history read, the resume -- in a different reader each time.
 The mount (M3) adds readers (a listing, a file read, a stat); each is bound
 by this rule before it ships, and the arm for it is the poisoned index
 asked through that reader.
+
+**D-35, 2026-11-22. A reader never answers from an index it did not just
+bring to the log; the index lives beside the store; currency is an
+extension.** *Claude, M2 head 6.* `cairn query` and `cairn current` answer
+through the SQLite index at `<root>/index.sqlite`, and before every answer
+`sqlindex.Sync` brings it to the log's head: a fresh, poisoned or over-long
+index is rebuilt from seq 1; an index behind the head has the missing tail
+applied from `At()+1`; a tail that falls short of the head is refused
+(`ErrStale`) rather than answered. The store's `ReadLog` verifies the whole
+chain from seq 1 whichever path is taken, so a resume is cheaper in index
+work and not in verification -- the right trade for 0.1, where the log is
+small and the chain's integrity is the point. `contract.Currency`
+(`Current(identity)`) is an extension and not part of `Index`: §6.1 lists
+what every index MUST answer, a head is derivable through `Query` for any
+identity a term can select, and `cairn current` wants it for an identity
+directly; an identity nothing supersedes is its own head, seen or not. One
+mutant on the command -- `Query` in place of `QueryAt` -- is EQUIVALENT by
+construction and is named as such rather than claimed killed: `Sync`
+returns an index at the head or an error, so the staleness guard cannot
+fire there; `QueryAt` stays as the stated intent, and the guard that holds
+is `Sync`'s own `ErrStale`, which has its arm (`TestSync`). Refused: a
+rebuild on every call (ten thousand edges is 1.2 s and the log will not
+stay small); trusting the file's recorded position (D-34's first addendum);
+`Current` in the `Index` contract (a MUST the mount does not need).
+
+*Record of the head's commit.* 17a2184's message says this entry and the
+roadmap line exist; they did not. The edit that was to write them failed
+on a wrong anchor and the commit ran on regardless, because the command
+joined them with `;` and not `&&`. The follow-up commit carries them and
+this note; the rule it adds to the one of 2026-11-21 (read the suite's
+exit status) is that a pipeline of edits and a commit stops at the first
+failure, and the commit is read as its own step too.

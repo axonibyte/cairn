@@ -122,6 +122,13 @@ set, errors and history included, with a one-edge control; a rebuild in
 one transaction. ACCEPTANCE READING: a 10,000-edge rebuild in 1.2 s on
 harness-01 (the first form committed per edge and took 30 s). Six mutants
 killed by name.
+6 (2026-11-22): `cairn query <root> <expr>` and `cairn current <root>
+<identity>` through the SQLite index beside the store (`<root>/index.sqlite`),
+brought to the log's head by `sqlindex.Sync` before every answer -- fresh,
+poisoned or over-long: rebuilt; behind: the tail applied; short of the head:
+refused (D-35). `contract.Currency` as an extension both indexes implement.
+An end-to-end walk on the command with refusals by name; four mutants killed,
+one equivalent by construction and named.
 
 **Deliverables**
 
